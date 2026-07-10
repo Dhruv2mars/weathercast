@@ -43,7 +43,12 @@ export function selectStudyRadarFrames(input: {
   }
   if (now - newestTime > 10 * 60_000) throw new Error('Newest MRMS frame is more than ten minutes old.');
   frames.slice(1).forEach((frame, index) => {
-    const spacing = new Date(frame.observed_at).getTime() - new Date(frames[index]!.observed_at).getTime();
+    const previousTime = new Date(frames[index]!.observed_at).getTime();
+    const currentTime = new Date(frame.observed_at).getTime();
+    if (!Number.isFinite(previousTime) || !Number.isFinite(currentTime)) {
+      throw new Error('Archived MRMS frame has an invalid observation time.');
+    }
+    const spacing = currentTime - previousTime;
     if (spacing < 60_000 || spacing > 5 * 60_000) throw new Error('Archived MRMS frame spacing is invalid.');
   });
   return frames;

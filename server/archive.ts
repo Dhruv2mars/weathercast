@@ -752,18 +752,18 @@ export class ForecastArchive {
     if (sourceDataTimes.size !== 1) throw new Error('Study batch runs must use one common radar source time.');
     const inputFrameSequences = new Set(input.runs.map(({ run }) => JSON.stringify(run.inputFrameIds)));
     if (inputFrameSequences.size !== 1) throw new Error('Study batch runs must use the same ordered radar input frames.');
-    input.runs.forEach(({ run }, index) => {
+    input.runs.forEach(({ targetId, run }, index) => {
       if (
         run.algorithmVersion !== study.algorithm_version
         || run.domain !== study.domain
         || run.product !== study.product
-      ) throw new Error('Study run provenance does not match the registered algorithm and source.');
+      ) throw new Error(`Study run for target ${targetId} has provenance that does not match the registered algorithm and source.`);
       if (locationCell(run.latitude, run.longitude) !== targets[index]?.location_cell) {
-        throw new Error('Study run location does not match its frozen target.');
+        throw new Error(`Study run for target ${targetId} location does not match its frozen target.`);
       }
       const sourceTime = new Date(run.sourceDataTime).getTime();
       if (!Number.isFinite(sourceTime) || sourceTime > issuedTime) {
-        throw new Error('Study run source time must not be later than issuance.');
+        throw new Error(`Study run for target ${targetId} source time must not be later than issuance.`);
       }
     });
 

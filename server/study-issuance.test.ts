@@ -41,5 +41,10 @@ describe('prospective study issuance', () => {
       expectedCount: 3,
       now: new Date('2026-07-11T00:09:00.000Z'),
     })).toThrow('spacing is invalid');
+    expect(() => selectStudyRadarFrames({
+      newestFirst: [frame('06'), frame('04'), frame('invalid'), frame('00')],
+      expectedCount: 4,
+      now: new Date('2026-07-11T00:07:00.000Z'),
+    })).toThrow('invalid observation time');
   });
 });

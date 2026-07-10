@@ -4,7 +4,6 @@ import { studyDefinitionSchema } from '../study-contract';
 const path = process.argv[2];
 if (!path) throw new Error('Usage: bun run api:register-study <definition.json>');
 const definition = studyDefinitionSchema.parse(await Bun.file(path).json());
-const registeredAt = new Date().toISOString();
 const archive = new ForecastArchive(process.env.DATABASE_PATH ?? '.data/weathercast.sqlite');
 
 try {
@@ -22,6 +21,7 @@ try {
     const target = byId.get(id)!;
     return { id, latitude: target.latitude, longitude: target.longitude };
   });
+  const registeredAt = new Date().toISOString();
   console.info(JSON.stringify(archive.registerVerificationStudy({ definition, registeredAt, targets })));
 } finally {
   archive.close();
