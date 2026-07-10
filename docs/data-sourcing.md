@@ -34,4 +34,4 @@ The implemented US tracer uses the MRMS `PrecipRate_00.00` operational product. 
 
 ## Initial model baseline
 
-Use radar QC, optical flow, and a 24–48 member STEPS-style ensemble for 0–120 minutes, blending toward regional NWP as extrapolation skill falls. Train neural models only after the immutable regional archive and verification pipeline are large enough to support reproducible evaluation.
+The implemented shadow baseline uses strict MRMS QC, local phase-correlation translation, and a deterministic 12–96-member velocity/growth perturbation ensemble for 0–120 minutes. It exists to build a reproducible forecast-versus-truth archive and remains explicitly uncalibrated. The next scientific upgrade is multi-scale optical flow and a 24–48 member STEPS-style cascade ensemble, blending toward regional NWP as extrapolation skill falls. Train neural models only after the immutable regional archive and verification pipeline are large enough to support reproducible held-out evaluation.
