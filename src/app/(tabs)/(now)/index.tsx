@@ -88,7 +88,7 @@ export default function NowScreen() {
                   {nowcast.confidence.label[0].toUpperCase()}{nowcast.confidence.label.slice(1)} confidence
                 </Text>
                 <Text selectable style={{ color: theme.text, backgroundColor: theme.elevated, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, fontWeight: '600' }}>
-                  Standard coverage
+                  {nowcast.dataTier[0].toUpperCase()}{nowcast.dataTier.slice(1)} coverage
                 </Text>
               </View>
             </View>
@@ -119,14 +119,19 @@ export default function NowScreen() {
                 <Divider />
                 <View style={{ padding: 16, gap: 4 }}>
                   <Text selectable style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>Freshness</Text>
-                  <Text selectable style={{ color: theme.secondaryText, fontSize: 15 }}>{formatRelativeUpdate(nowcast.issuedAt)}</Text>
+                  <Text selectable style={{ color: theme.secondaryText, fontSize: 15 }}>
+                    {formatRelativeUpdate(nowcast.generatedAt ?? nowcast.issuedAt)}
+                  </Text>
+                  {!nowcast.sourceDataTime && nowcast.forecastId && (
+                    <Text selectable style={{ color: theme.secondaryText, fontSize: 13 }}>Provider source timestamp unavailable</Text>
+                  )}
                 </View>
                 <Divider />
                 <View style={{ padding: 16, gap: 4 }}>
                   <Text selectable style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>Source</Text>
                   <Text selectable style={{ color: theme.secondaryText, fontSize: 15, lineHeight: 21 }}>{nowcast.source}</Text>
                   <Text selectable style={{ color: theme.secondaryText, fontSize: 13, lineHeight: 19 }}>
-                    Standard-tier guidance is model-based and not street-level radar. Weathercast shows this limitation instead of implying unsupported precision.
+                    {nowcast.coverage?.reason ?? 'Standard-tier guidance is model-based and not street-level radar. Weathercast shows this limitation instead of implying unsupported precision.'}
                   </Text>
                 </View>
               </Group>

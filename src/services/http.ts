@@ -7,11 +7,21 @@ export class ApiError extends Error {
   }
 }
 
-export async function getJson(url: string, signal?: AbortSignal): Promise<unknown> {
+async function requestJson(url: string, init: RequestInit, signal?: AbortSignal): Promise<unknown> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abort = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, 10_000);
   try {
     const response = await fetch(url, {
-      headers: { Accept: 'application/json' },
-      signal,
+      ...init,
+      headers: { Accept: 'application/json', ...init.headers },
+      signal: controller.signal,
     });
     if (!response.ok) {
       throw new ApiError(`Weather service returned ${response.status}.`, response.status, 'HTTP_ERROR');
@@ -20,8 +30,23 @@ export async function getJson(url: string, signal?: AbortSignal): Promise<unknow
   } catch (error) {
     if (error instanceof ApiError) throw error;
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new ApiError('Weather request timed out.', 0, 'TIMEOUT');
+      throw new ApiError(timedOut ? 'Weather request timed out.' : 'Weather request was cancelled.', 0, timedOut ? 'TIMEOUT' : 'CANCELLED');
     }
     throw new ApiError('Could not reach the weather service.', 0, 'NETWORK_ERROR');
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener('abort', abort);
   }
+}
+
+export function getJson(url: string, signal?: AbortSignal): Promise<unknown> {
+  return requestJson(url, { method: 'GET' }, signal);
+}
+
+export function postJson(url: string, body: unknown, signal?: AbortSignal): Promise<unknown> {
+  return requestJson(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }, signal);
 }
