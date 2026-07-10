@@ -70,7 +70,7 @@ describe('verification archive', () => {
       scoresWritten: 1,
     });
     const [score] = archive.listScores();
-    expect(score.metric).toBe('brier');
+    expect(score.metric).toBe('brier_rain_occurrence_point');
     expect(score.horizon_minutes).toBe(15);
     expect(score.value).toBeCloseTo(0.04, 8);
     expect(archive.verifyBrier('v1', new Date('2026-07-10T10:30:00.000Z')).scoresWritten).toBe(0);

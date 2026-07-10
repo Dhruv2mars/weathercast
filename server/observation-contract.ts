@@ -10,6 +10,9 @@ export const observationInputSchema = z.object({
   rainRateMmHour: z.number().nonnegative().optional(),
   accumulationMm: z.number().nonnegative().optional(),
   quality: z.enum(['provisional', 'verified', 'rejected']),
+  truthResolutionSeconds: z.number().int().positive().optional(),
+  onsetPublishable: z.boolean().optional(),
+  sourceAssetId: z.string().min(1).optional(),
   payload: z.unknown(),
 });
 
