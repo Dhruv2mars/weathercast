@@ -238,7 +238,7 @@ describe('calibration archive', () => {
         trainingSampleCount: 672,
         validationSampleCount: 672,
         rawValidationBrierScore: 0.398929,
-        calibratedValidationBrierScore: 0.240357,
+        calibratedValidationBrierScore: 0.240354,
       }));
       expect(archive.getCalibrationArtifact(fitted.artifact.id)).toEqual(fitted.artifact);
       expect(archive.fitCalibrationPlan({
@@ -303,9 +303,20 @@ describe('calibration archive', () => {
       });
       expect(() => archive.saveVerificationStudyRadarBatch(evaluationBatch(rawEvaluationNowcast)))
         .toThrow('bound calibration artifact');
-      expect(archive.saveVerificationStudyRadarBatch(evaluationBatch(
-        applyCalibrationArtifact(rawEvaluationNowcast, fitted.artifact),
-      )).runs[0]!.linked).toBe(true);
+      const calibratedEvaluationNowcast = applyCalibrationArtifact(rawEvaluationNowcast, fitted.artifact);
+      const forgedEvaluationNowcast: RadarNowcast = {
+        ...calibratedEvaluationNowcast,
+        intervals: calibratedEvaluationNowcast.intervals.map((interval, index) => (
+          index === 0 && interval.status === 'valid'
+            ? { ...interval, probability: interval.probability + 1 }
+            : interval
+        )),
+      };
+      expect(() => archive.saveVerificationStudyRadarBatch(evaluationBatch(forgedEvaluationNowcast)))
+        .toThrow('does not match its bound artifact');
+      expect(archive.saveVerificationStudyRadarBatch(
+        evaluationBatch(calibratedEvaluationNowcast),
+      ).runs[0]!.linked).toBe(true);
       archive.saveObservation({
         source: 'aviation-weather-metar',
         sourceEventId: 'evaluation:truth:0',

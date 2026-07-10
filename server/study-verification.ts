@@ -319,10 +319,14 @@ export function computeVerificationStudyEvidence(input: {
     brierImprovement: number;
   } | null = null;
   if (calibrationEvidenceStatus === 'uncalibrated_baseline') {
-    precisionPromotionGateFailures.push(
-      'algorithm_is_uncalibrated_shadow_baseline',
-      'independent_calibration_holdout_not_registered',
-    );
+    if (input.calibrationEvaluationPolicy) {
+      precisionPromotionGateFailures.push('independent_calibration_holdout_has_no_provisional_runs');
+    } else {
+      precisionPromotionGateFailures.push(
+        'algorithm_is_uncalibrated_shadow_baseline',
+        'independent_calibration_holdout_not_registered',
+      );
+    }
   } else if (calibrationEvidenceStatus === 'mixed_or_inconsistent') {
     precisionPromotionGateFailures.push('calibration_provenance_is_mixed_or_inconsistent');
   } else {
@@ -338,8 +342,10 @@ export function computeVerificationStudyEvidence(input: {
     if (gateFailures.length > 0) {
       precisionPromotionGateFailures.push('publication_evidence_gates_not_met');
     }
+    let counterfactualComplete = true;
     for (const horizon of horizons) {
       if (horizon.uncalibratedCounterfactualCount !== horizon.observationCount) {
+        counterfactualComplete = false;
         precisionPromotionGateFailures.push(`raw_counterfactual_missing:${horizon.horizonMinutes}`);
       } else if (
         policy
@@ -358,7 +364,7 @@ export function computeVerificationStudyEvidence(input: {
       }
     }
     const paired = pairs.filter((pair) => pair.rawCounterfactualProbability !== undefined);
-    if (paired.length > 0) {
+    if (counterfactualComplete && paired.length > 0) {
       const rawBrierExact = paired.reduce((sum, pair) => (
         sum + (pair.rawCounterfactualProbability! / 100 - Number(pair.observedRain)) ** 2
       ), 0) / paired.length;
@@ -381,7 +387,7 @@ export function computeVerificationStudyEvidence(input: {
       ) {
         precisionPromotionGateFailures.push('aggregate_holdout_brier_improvement_below_threshold');
       }
-    } else {
+    } else if (counterfactualComplete) {
       precisionPromotionGateFailures.push('calibration_holdout_has_no_paired_observations');
     }
   }

@@ -4,6 +4,7 @@ import type { RadarNowcast } from './radar-nowcast-contract';
 import {
   applyCalibrationArtifact,
   fitIsotonicCalibrationArtifact,
+  verifyAppliedCalibration,
   type CalibrationSample,
 } from './calibration';
 
@@ -115,6 +116,16 @@ describe('isotonic rain-probability calibration', () => {
       method: 'isotonic-pav-v1',
       rawProbabilities: [50, null, null, null, null, null, null, null],
     });
+    expect(applyCalibrationArtifact(nowcast(35), artifact).intervals[0]!.probability).toBe(25);
+    expect(verifyAppliedCalibration(calibrated, artifact)).toEqual(calibrated);
+    expect(() => verifyAppliedCalibration({
+      ...calibrated,
+      intervals: calibrated.intervals.map((interval, index) => (
+        index === 0 && interval.status === 'valid'
+          ? { ...interval, probability: interval.probability + 1 }
+          : interval
+      )),
+    }, artifact)).toThrow('does not match its bound artifact');
   });
 
   test('refuses partial probability calibration for a valid nowcast', () => {
@@ -171,5 +182,30 @@ describe('isotonic rain-probability calibration', () => {
       ...artifact,
       eligibleForShadowApplication: true,
     })).toThrow('checksum is invalid');
+  });
+
+  test('retains fractional isotonic frequencies used by validation and runtime', () => {
+    const samples = [
+      ...Array.from({ length: 12 }, (_, index) => sample('training', 20, index < 4, index)),
+      ...Array.from({ length: 12 }, (_, index) => sample('validation', 20, index < 4, index + 12)),
+    ];
+    const artifact = fitIsotonicCalibrationArtifact({
+      planId: 'fractional-calibration-plan',
+      planSha256: 'a'.repeat(64),
+      artifactVersion: 'fractional-v1',
+      fittedAt: '2026-07-02T00:00:00.000Z',
+      algorithmVersion: 'translation-ensemble-v1',
+      domain: 'CONUS',
+      product: 'PrecipRate_00.00',
+      evaluationStudyId: 'evaluation-study',
+      evaluationStudySha256: 'b'.repeat(64),
+      horizonsMinutes: [0],
+      minimumSamplesPerHorizon: 10,
+      maximumValidationBrierDegradation: 0,
+      minimumAggregateValidationBrierImprovement: 0.001,
+      samples,
+    });
+    expect(artifact.horizons[0]!.blocks[0]!.calibratedProbability).toBe(33.333333);
+    expect(applyCalibrationArtifact(nowcast(20), artifact).intervals[0]!.probability).toBe(33.333333);
   });
 });

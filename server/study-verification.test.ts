@@ -213,6 +213,29 @@ describe('prospective study report', () => {
     })).toThrow('Calibration holdout policy is invalid');
   });
 
+  test('reports a registered holdout with no runs as not started, not unregistered', () => {
+    const study = definition({ horizonsMinutes: [0] });
+    const report = computeVerificationStudyReport({
+      definition: study,
+      definitionSha256: '5'.repeat(64),
+      registeredAt: '2026-07-10T23:00:00.000Z',
+      targetIds: ['KHSV'],
+      runs: [],
+      observations: [],
+      asOf: new Date(study.startsAt),
+      calibrationEvaluationPolicy: {
+        artifactId: 'c'.repeat(24),
+        artifactSha256: 'd'.repeat(64),
+        maximumHoldoutBrierDegradation: 0,
+        minimumAggregateHoldoutBrierImprovement: 0.001,
+      },
+    });
+    expect(report.precisionPromotionGateFailures)
+      .toContain('independent_calibration_holdout_has_no_provisional_runs');
+    expect(report.precisionPromotionGateFailures)
+      .not.toContain('independent_calibration_holdout_not_registered');
+  });
+
   test('uses one nearest observation per run and horizon with prospective time boundaries', () => {
     const run: StudyVerificationRun = {
       runId: 'run-1',

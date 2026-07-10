@@ -6,6 +6,7 @@ import { dirname } from 'node:path';
 import type { Nowcast } from '@/types/weather';
 import {
   fitIsotonicCalibrationArtifact,
+  verifyAppliedCalibration,
   verifyCalibrationArtifact,
   type CalibrationArtifact,
   type CalibrationSample,
@@ -837,7 +838,13 @@ export class ForecastArchive {
           }
           samples.push(...evidence.pairs.map((pair): CalibrationSample => ({
             partition,
-            ...pair,
+            studyId: pair.studyId,
+            runId: pair.runId,
+            targetId: pair.targetId,
+            horizonMinutes: pair.horizonMinutes,
+            probability: pair.rawCounterfactualProbability ?? pair.probability,
+            observedRain: pair.observedRain,
+            observedAt: pair.observedAt,
           })));
         }
       }
@@ -1135,6 +1142,7 @@ export class ForecastArchive {
         || response.calibration?.artifactSha256 !== evaluationArtifact.sha256
         || response.calibration?.method !== evaluationArtifact.method
       ))) throw new Error('Calibration evaluation run does not use its bound calibration artifact.');
+      parsedResponses.forEach((response) => verifyAppliedCalibration(response, evaluationArtifact));
     } else if (parsedResponses.some((response) => response.calibrationStatus !== 'uncalibrated')) {
       throw new Error('Provisional calibration is only valid for its bound evaluation study.');
     }

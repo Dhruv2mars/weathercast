@@ -121,14 +121,27 @@ function fitBlocks(samples: CalibrationSample[]): IsotonicBlock[] {
   }
   return blocks.map((block) => ({
     ...block,
-    calibratedProbability: Math.round(100 * block.observedRainCount / block.sampleCount),
+    calibratedProbability: round(100 * block.observedRainCount / block.sampleCount),
   }));
 }
 
 function calibratedProbability(probability: number, blocks: IsotonicBlock[]) {
   if (blocks.length === 0) throw new Error('Calibration model contains no isotonic blocks.');
-  return (blocks.find((block) => probability <= block.upperProbabilityInclusive) ?? blocks.at(-1)!)
-    .calibratedProbability;
+  const first = blocks[0]!;
+  if (probability <= first.lowerProbabilityInclusive) return first.calibratedProbability;
+  for (const [index, block] of blocks.entries()) {
+    if (probability <= block.upperProbabilityInclusive) return block.calibratedProbability;
+    const next = blocks[index + 1];
+    if (next && probability < next.lowerProbabilityInclusive) {
+      const gap = next.lowerProbabilityInclusive - block.upperProbabilityInclusive;
+      const weight = (probability - block.upperProbabilityInclusive) / gap;
+      return round(
+        block.calibratedProbability
+        + weight * (next.calibratedProbability - block.calibratedProbability),
+      );
+    }
+  }
+  return blocks.at(-1)!.calibratedProbability;
 }
 
 function brierScoreExact(samples: CalibrationSample[], blocks?: IsotonicBlock[]) {
@@ -344,4 +357,35 @@ export function applyCalibrationArtifact(nowcastInput: RadarNowcast, artifactInp
     },
   };
   return radarNowcastSchema.parse(calibrated);
+}
+
+export function verifyAppliedCalibration(nowcastInput: RadarNowcast, artifactInput: CalibrationArtifact) {
+  const nowcast = radarNowcastSchema.parse(nowcastInput);
+  if (nowcast.calibrationStatus !== 'provisional' || !nowcast.calibration) {
+    throw new Error('Radar nowcast is not provisionally calibrated.');
+  }
+  const { calibration: _calibration, ...withoutCalibration } = nowcast;
+  const rawNowcast = radarNowcastSchema.parse({
+    ...withoutCalibration,
+    calibrationStatus: 'uncalibrated',
+    intervals: nowcast.intervals.map((interval, index) => (
+      interval.status === 'valid'
+        ? { ...interval, probability: nowcast.calibration!.rawProbabilities[index] }
+        : interval
+    )),
+    coverage: {
+      ...nowcast.coverage,
+      reason: 'Reconstructed raw counterfactual for calibration verification.',
+    },
+  });
+  const expected = applyCalibrationArtifact(rawNowcast, artifactInput);
+  const evidence = (candidate: RadarNowcast) => JSON.stringify({
+    intervals: candidate.intervals,
+    calibration: candidate.calibration,
+    coverage: candidate.coverage,
+  });
+  if (evidence(nowcast) !== evidence(expected)) {
+    throw new Error('Provisional radar nowcast does not match its bound artifact.');
+  }
+  return nowcast;
 }

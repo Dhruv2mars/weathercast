@@ -5,7 +5,7 @@ const validInterval = z.object({
   leadEndMinutes: z.number().int().min(15).max(120),
   validAt: z.iso.datetime(),
   status: z.literal('valid'),
-  probability: z.number().int().min(0).max(100),
+  probability: z.number().finite().min(0).max(100),
   rainRateMmPerHour: z.number().finite().nonnegative().max(300),
 });
 
