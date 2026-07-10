@@ -59,3 +59,24 @@ Run METAR ingestion no more than once per minute. The adapter stores the exact r
 Only observations marked `verified` enter the point-occurrence Brier calculation. This is not silently treated as interval accumulation or onset truth. Repeated source event IDs and repeated verification versions are idempotent. Forecasts, observations, and score versions have SQLite triggers that reject updates and deletes; corrections must be new records. This tracer proves the archive/verification loop but is not yet a publishable accuracy study.
 
 SQLite is a deployable single-instance tracer bullet, not the global production datastore. Multi-region rollout requires Postgres/PostGIS, a content-addressed raw-input object archive, gateway/app attestation, distributed rate limiting, source freshness monitoring, and a verification worker. Precision remains disabled until licensed radar and held-out calibration pass the release gates.
+
+## NOAA MRMS radar tracer
+
+The first authoritative radar adapter ingests NOAA's public operational MRMS CONUS precipitation-rate frames from the Registry of Open Data on AWS. It archives the exact compressed GRIB2 source bytes and immutable frame metadata before downstream decoding:
+
+```bash
+DATABASE_PATH=.data/weathercast.sqlite \
+MRMS_DOMAIN=CONUS \
+MRMS_PRODUCT=PrecipRate_00.00 \
+MRMS_FRAME_COUNT=8 \
+WEATHERCAST_USER_AGENT='Weathercast/1.0 contact=ops@weathercast.app' \
+bun run api:ingest-mrms
+```
+
+The job exits non-zero if the newest frame is more than ten minutes old. The strict ecCodes worker validates the operational 7,000 × 3,500, 0.01-degree precipitation-rate grid (discipline 209, category 6, parameter 1) and samples up to 500 coordinates per invocation:
+
+```bash
+bun run radar:sample frame.grib2.gz --points points.json
+```
+
+`points.json` is a non-empty array of `{ "id", "latitude", "longitude" }` objects. The output unit is `mm/h`. Official MRMS sentinel `-1` is returned as `missing`, and `-3` as `no_coverage`; neither is allowed to become a zero-rain observation. Raw radar ingestion and point decoding do not yet make this a motion nowcast, so Precision coverage remains gated.

@@ -24,6 +24,8 @@ Coverage and redistribution rights vary by product. Legal review, written commer
 
 METAR is not hyperlocal truth: stations are sparse, normal reporting is commonly hourly, and present-weather reports cannot validate a ±5-minute onset claim. Precision calibration still requires radar and denser independent gauges with known measurement periods and quality flags.
 
+The implemented US tracer uses the MRMS `PrecipRate_00.00` operational product. NOAA documents the composite at approximately 1 km spatial and 2-minute temporal resolution; the operational GRIB table defines the value as `mm/hr`, missing as `-1`, and no radar coverage as `-3`. Weathercast preserves those unknown states and attributes the source as “NOAA Multi-Radar/Multi-Sensor System (MRMS), accessed through the NOAA Open Data Dissemination Program.” Public access does not imply NOAA endorsement.
+
 ## Explicit exclusions
 
 - RainViewer's free API is not a commercial production foundation and does not provide the required future nowcast path.
