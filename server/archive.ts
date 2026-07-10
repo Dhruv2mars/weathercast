@@ -617,6 +617,42 @@ export class ForecastArchive {
 
   private saveRadarNowcastRunInternal(input: RadarNowcastRunInput) {
     if (input.inputFrameIds.length < 3) throw new Error('Radar nowcast runs require at least three input frames.');
+    if (new Set(input.inputFrameIds).size !== input.inputFrameIds.length) {
+      throw new Error('Radar nowcast input frame IDs must be unique.');
+    }
+    if (
+      !Number.isFinite(input.latitude)
+      || !Number.isFinite(input.longitude)
+      || input.latitude < -90
+      || input.latitude > 90
+      || input.longitude < -180
+      || input.longitude > 180
+    ) throw new Error('Radar nowcast run coordinates are invalid.');
+    const frames = input.inputFrameIds.map((frameId) => this.database.query<{
+      id: string;
+      observed_at: string;
+      domain: string;
+      product: string;
+    }, [string]>(`
+      SELECT id, observed_at, domain, product FROM radar_frames WHERE id = ?
+    `).get(frameId));
+    if (frames.some((frame) => !frame)) throw new Error('Radar nowcast input frame is not archived.');
+    const observedTimes = frames.map((frame) => new Date(frame!.observed_at).getTime());
+    if (
+      observedTimes.some((time) => !Number.isFinite(time))
+      || observedTimes.some((time, index) => index > 0 && time <= observedTimes[index - 1]!)
+    ) throw new Error('Radar nowcast input frames must be chronological.');
+    if (frames.some((frame) => frame!.domain !== input.domain || frame!.product !== input.product)) {
+      throw new Error('Radar nowcast input frames do not match the run source.');
+    }
+    const sourceTime = new Date(input.sourceDataTime).getTime();
+    const issuedTime = new Date(input.issuedAt).getTime();
+    if (!Number.isFinite(sourceTime) || sourceTime !== observedTimes.at(-1)) {
+      throw new Error('Radar nowcast source time must match the newest input frame.');
+    }
+    if (!Number.isFinite(issuedTime) || issuedTime < sourceTime || issuedTime - sourceTime > 10 * 60_000) {
+      throw new Error('Radar nowcast issuance requires fresh radar inputs.');
+    }
     const cell = locationCell(input.latitude, input.longitude);
     const id = createHash('sha256')
       .update(JSON.stringify({
@@ -714,6 +750,8 @@ export class ForecastArchive {
     ) throw new Error('Study issue must contain the complete target cohort in registered order.');
     const sourceDataTimes = new Set(input.runs.map(({ run }) => run.sourceDataTime));
     if (sourceDataTimes.size !== 1) throw new Error('Study batch runs must use one common radar source time.');
+    const inputFrameSequences = new Set(input.runs.map(({ run }) => JSON.stringify(run.inputFrameIds)));
+    if (inputFrameSequences.size !== 1) throw new Error('Study batch runs must use the same ordered radar input frames.');
     input.runs.forEach(({ run }, index) => {
       if (
         run.algorithmVersion !== study.algorithm_version

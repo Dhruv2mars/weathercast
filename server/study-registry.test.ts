@@ -114,7 +114,7 @@ describe('immutable prospective study registry', () => {
         registeredAt: '2026-07-10T23:00:00.000Z',
         targets,
       });
-      const inputFrameIds = ['00:00', '00:02', '00:04'].map((minute, index) => {
+      const inputFrameIds = ['00:08', '00:10', '00:12'].map((minute, index) => {
         const observedAt = `2026-07-11T${minute}:00.000Z`;
         const asset = archive.saveSourceAsset({
           provider: 'noaa-mrms',
@@ -137,7 +137,7 @@ describe('immutable prospective study registry', () => {
       const runs = targets.map((target) => ({
         targetId: target.id,
         run: {
-          sourceDataTime: '2026-07-11T00:04:00.000Z',
+          sourceDataTime: '2026-07-11T00:12:00.000Z',
           latitude: target.latitude,
           longitude: target.longitude,
           domain: 'CONUS',
@@ -161,6 +161,15 @@ describe('immutable prospective study registry', () => {
         runs,
       }).runs.map((run) => run.linked)).toEqual([false, false]);
       expect(archive.listVerificationStudyRadarRuns(definition().id)).toHaveLength(2);
+      expect(() => archive.saveVerificationStudyRadarBatch({
+        studyId: definition().id,
+        scheduledAt: '2026-07-11T00:30:00.000Z',
+        issuedAt: '2026-07-11T00:30:30.000Z',
+        runs: [runs[0]!, {
+          ...runs[1]!,
+          run: { ...runs[1]!.run, inputFrameIds: inputFrameIds.slice(1) },
+        }],
+      })).toThrow('same ordered radar input frames');
       expect(() => archive.saveVerificationStudyRadarBatch({
         studyId: definition().id,
         scheduledAt: '2026-07-11T00:30:00.000Z',
