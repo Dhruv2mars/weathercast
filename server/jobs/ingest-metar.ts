@@ -3,7 +3,7 @@ import { ForecastArchive } from '../archive';
 
 const stationIds = (process.env.METAR_STATION_IDS ?? '')
   .split(',')
-  .map((station) => station.trim().toUpperCase())
+  .map((station: string) => station.trim().toUpperCase())
   .filter(Boolean);
 if (stationIds.length === 0) throw new Error('METAR_STATION_IDS is required.');
 
