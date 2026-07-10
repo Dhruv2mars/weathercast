@@ -55,6 +55,15 @@ export type SourceAssetInput = {
   bytes: Uint8Array;
 };
 
+export type RadarFrameInput = {
+  domain: string;
+  product: string;
+  observedAt: string;
+  retrievedAt: string;
+  objectKey: string;
+  sourceAssetId: string;
+};
+
 export function locationCell(latitude: number, longitude: number) {
   return `${latitude.toFixed(4)},${longitude.toFixed(4)}`;
 }
@@ -99,6 +108,19 @@ export class ForecastArchive {
         response_json TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
+      CREATE TABLE IF NOT EXISTS radar_frames (
+        id TEXT PRIMARY KEY,
+        domain TEXT NOT NULL,
+        product TEXT NOT NULL,
+        observed_at TEXT NOT NULL,
+        retrieved_at TEXT NOT NULL,
+        object_key TEXT NOT NULL,
+        source_asset_id TEXT NOT NULL REFERENCES source_assets(id),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(domain, product, observed_at)
+      );
+      CREATE INDEX IF NOT EXISTS radar_frames_product_time
+        ON radar_frames(domain, product, observed_at DESC);
       CREATE INDEX IF NOT EXISTS forecast_issues_cell_fresh
         ON forecast_issues(location_cell, valid_until DESC);
       CREATE TABLE IF NOT EXISTS rain_observations (
@@ -148,6 +170,10 @@ export class ForecastArchive {
         BEFORE UPDATE ON source_assets BEGIN SELECT RAISE(ABORT, 'source assets are immutable'); END;
       CREATE TRIGGER IF NOT EXISTS source_assets_no_delete
         BEFORE DELETE ON source_assets BEGIN SELECT RAISE(ABORT, 'source assets are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS radar_frames_no_update
+        BEFORE UPDATE ON radar_frames BEGIN SELECT RAISE(ABORT, 'radar frames are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS radar_frames_no_delete
+        BEFORE DELETE ON radar_frames BEGIN SELECT RAISE(ABORT, 'radar frames are immutable'); END;
     `);
     this.ensureColumn('rain_observations', 'source_asset_id', 'TEXT REFERENCES source_assets(id)');
     this.ensureColumn('rain_observations', 'truth_resolution_seconds', 'INTEGER NOT NULL DEFAULT 3600 CHECK (truth_resolution_seconds > 0)');
@@ -274,6 +300,43 @@ export class ForecastArchive {
       ORDER BY MAX(observed_at) DESC
       LIMIT ?
     `).all(limit);
+  }
+
+  saveRadarFrame(input: RadarFrameInput) {
+    const id = createHash('sha256')
+      .update(JSON.stringify({ domain: input.domain, product: input.product, observedAt: input.observedAt }))
+      .digest('hex')
+      .slice(0, 24);
+    this.database.query(`
+      INSERT OR IGNORE INTO radar_frames (
+        id, domain, product, observed_at, retrieved_at, object_key, source_asset_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      input.domain,
+      input.product,
+      input.observedAt,
+      input.retrievedAt,
+      input.objectKey,
+      input.sourceAssetId,
+    );
+    return id;
+  }
+
+  listRadarFrames(domain: string, product: string, limit = 30) {
+    return this.database.query<{
+      id: string;
+      observed_at: string;
+      retrieved_at: string;
+      object_key: string;
+      source_asset_id: string;
+    }, [string, string, number]>(`
+      SELECT id, observed_at, retrieved_at, object_key, source_asset_id
+      FROM radar_frames
+      WHERE domain = ? AND product = ?
+      ORDER BY observed_at DESC
+      LIMIT ?
+    `).all(domain, product, limit);
   }
 
   verifyBrier(verificationVersion: string, through: Date) {
