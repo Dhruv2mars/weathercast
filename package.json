@@ -66,5 +66,8 @@
     "check": "bun run lint && bun run typecheck && bun test && bun run radar:check",
     "export": "expo export --platform all"
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "uuid": "11.1.1"
+  }
 }
