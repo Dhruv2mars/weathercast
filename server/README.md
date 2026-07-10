@@ -111,8 +111,16 @@ METAR_STATION_IDS=KATL,KBOS,KCLT,KDEN,KDFW,KHSV,KIAD,KIAH,KJFK,KLAX,KMCI,KMIA,KM
 WEATHERCAST_USER_AGENT='Weathercast/1.0 contact=ops@weathercast.app' \
 bun run api:ingest-metar
 
+for definition in \
+  server/fixtures/study.calibration-training.example.json \
+  server/fixtures/study.calibration-validation.example.json \
+  server/fixtures/study.example.json
+do
+  DATABASE_PATH=.data/weathercast.sqlite bun run api:register-study "$definition"
+done
+
 DATABASE_PATH=.data/weathercast.sqlite \
-bun run api:register-study server/fixtures/study.example.json
+bun run api:register-calibration server/fixtures/calibration.example.json
 ```
 
 Keep MRMS ingestion running at its source cadence. Invoke the study runner once in every registered 15-minute window:
@@ -121,7 +129,7 @@ Keep MRMS ingestion running at its source cadence. Invoke the study runner once 
 DATABASE_PATH=.data/weathercast.sqlite \
 MRMS_NOWCAST_FRAME_COUNT=4 \
 MRMS_NOWCAST_MEMBERS=48 \
-bun run api:issue-radar-study mrms-metar-conus-2026q3-v1
+bun run api:issue-radar-study mrms-metar-conus-calibration-training-2026-v1
 ```
 
 The worker decodes each compressed grid once for the complete cohort, validates the exact target order and source checksums at the Bun boundary, then archives every run and study link in one transaction. It rejects missing targets, changed locations, mixed source times, stale or gapped frames, late completion, and attempts outside the registered window. Repeating a completed slot is idempotent. Study definitions, coordinates, runs, inputs, and links are protected by append-only database triggers.
@@ -133,7 +141,7 @@ Create a versioned evidence report at any cutoff:
 ```bash
 DATABASE_PATH=.data/weathercast.sqlite \
 bun run api:report-study \
-  mrms-metar-conus-2026q3-v1 \
+  mrms-metar-conus-calibration-training-2026-v1 \
   2026-08-08T00:00:00.000Z \
   preliminary-week-1
 ```
@@ -145,3 +153,32 @@ Issuance completeness counts only cadence slots containing the entire target coh
 `eligibleForPublication` remains false until the study has ended, at least 95% of complete cohort issues exist, and every horizon reaches its pre-registered observation count. Eligibility covers only the model's own point rain-occurrence evidence. It is not a competitor-superiority result and does not promote the uncalibrated shadow model to Precision.
 
 Stored study definitions are versioned. Definitions registered before the report policy existed remain readable and may generate diagnostic output, but always carry `report_policy_not_preregistered` and can never become publication-eligible. The system does not retroactively insert sampling or completeness rules into an older experiment.
+
+## Leakage-safe probability calibration
+
+Calibration uses three disjoint prospective study partitions: training, validation, and untouched evaluation. The calibration plan must be registered before the training partition starts. The archive rejects overlapping or reordered partitions, changed horizons, mismatched algorithms or products, and any plan that references a legacy study without preregistered report rules.
+
+After both training and validation studies end and pass their own publication gates, fit a deterministic per-horizon pool-adjacent-violators isotonic artifact:
+
+```bash
+DATABASE_PATH=.data/weathercast.sqlite \
+bun run api:fit-calibration \
+  mrms-metar-conus-calibration-2026-v1 \
+  isotonic-v1 \
+  2026-09-29T01:00:00.000Z
+```
+
+Fitting uses the exact observation/forecast pairs selected by the evidence-report path. Training data determines monotonic probability blocks. Validation data is not fitted; it gates the artifact. Every horizon needs at least 100 training and 100 validation pairs, no horizon may worsen Brier score, and aggregate validation Brier must improve by at least 0.001. Input samples, plan, evaluation study, artifact, and checksums are content-addressed and immutable.
+
+Bind exactly one passing artifact to the untouched evaluation study before that study starts:
+
+```bash
+DATABASE_PATH=.data/weathercast.sqlite \
+bun run api:activate-calibration <artifact-id> 2026-09-29T02:00:00.000Z
+```
+
+The evaluation runner automatically applies the bound artifact. The archive rejects raw evaluation runs, a different artifact, post-start activation, and provisional calibration in any unbound study. Each provisional interval retains its raw issuance-time probability beside the calibrated probability, allowing a final report to calculate paired raw-versus-calibrated Brier scores without retrospective reconstruction.
+
+Run the evaluation cohort through its full registered period, then create its final report. `eligibleForPrecisionPromotion` opens only when publication gates pass, every calibrated observation has a raw counterfactual, no horizon worsens against raw, and aggregate untouched-holdout Brier improves by the threshold preregistered in the calibration plan. This field covers calibration evidence only. Data rights, production reliability, regional coverage, and store-release gates remain separate requirements.
+
+For ad hoc shadow issuance outside a study, `CALIBRATION_ARTIFACT_ID=<artifact-id>` applies a passing archived artifact. Omit it to retain the uncalibrated baseline.
