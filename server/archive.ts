@@ -41,7 +41,18 @@ export type RainObservationInput = {
   rainRateMmHour?: number;
   accumulationMm?: number;
   quality: 'provisional' | 'verified' | 'rejected';
+  truthResolutionSeconds?: number;
+  onsetPublishable?: boolean;
+  sourceAssetId?: string;
   payload: unknown;
+};
+
+export type SourceAssetInput = {
+  provider: string;
+  upstreamKey: string;
+  retrievedAt: string;
+  mediaType: string;
+  bytes: Uint8Array;
 };
 
 export function locationCell(latitude: number, longitude: number) {
@@ -63,6 +74,18 @@ export class ForecastArchive {
     this.database = new Database(path, { create: true, strict: true });
     this.database.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
     this.database.exec(`
+      CREATE TABLE IF NOT EXISTS source_assets (
+        id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        upstream_key TEXT NOT NULL,
+        retrieved_at TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        byte_length INTEGER NOT NULL CHECK (byte_length >= 0),
+        payload BLOB NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(provider, upstream_key, sha256)
+      );
       CREATE TABLE IF NOT EXISTS forecast_issues (
         id TEXT PRIMARY KEY,
         issued_at TEXT NOT NULL,
@@ -86,10 +109,13 @@ export class ForecastArchive {
         location_cell TEXT NOT NULL,
         latitude REAL NOT NULL,
         longitude REAL NOT NULL,
+        source_asset_id TEXT REFERENCES source_assets(id),
         rain_observed INTEGER NOT NULL CHECK (rain_observed IN (0, 1)),
         rain_rate_mm_hour REAL,
         accumulation_mm REAL,
         quality TEXT NOT NULL CHECK (quality IN ('provisional', 'verified', 'rejected')),
+        truth_resolution_seconds INTEGER NOT NULL CHECK (truth_resolution_seconds > 0),
+        onset_publishable INTEGER NOT NULL CHECK (onset_publishable IN (0, 1)),
         payload_json TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(source, source_event_id)
@@ -118,7 +144,21 @@ export class ForecastArchive {
         BEFORE UPDATE ON forecast_scores BEGIN SELECT RAISE(ABORT, 'forecast scores are immutable'); END;
       CREATE TRIGGER IF NOT EXISTS forecast_scores_no_delete
         BEFORE DELETE ON forecast_scores BEGIN SELECT RAISE(ABORT, 'forecast scores are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS source_assets_no_update
+        BEFORE UPDATE ON source_assets BEGIN SELECT RAISE(ABORT, 'source assets are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS source_assets_no_delete
+        BEFORE DELETE ON source_assets BEGIN SELECT RAISE(ABORT, 'source assets are immutable'); END;
     `);
+    this.ensureColumn('rain_observations', 'source_asset_id', 'TEXT REFERENCES source_assets(id)');
+    this.ensureColumn('rain_observations', 'truth_resolution_seconds', 'INTEGER NOT NULL DEFAULT 3600 CHECK (truth_resolution_seconds > 0)');
+    this.ensureColumn('rain_observations', 'onset_publishable', 'INTEGER NOT NULL DEFAULT 0 CHECK (onset_publishable IN (0, 1))');
+  }
+
+  private ensureColumn(table: string, column: string, definition: string) {
+    const columns = this.database.query<{ name: string }, []>(`PRAGMA table_info(${table})`).all();
+    if (!columns.some((candidate) => candidate.name === column)) {
+      this.database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
   }
 
   isReady() {
@@ -177,8 +217,9 @@ export class ForecastArchive {
     this.database.query(`
       INSERT OR IGNORE INTO rain_observations (
         id, source, source_event_id, observed_at, location_cell, latitude, longitude,
-        rain_observed, rain_rate_mm_hour, accumulation_mm, quality, payload_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        source_asset_id, rain_observed, rain_rate_mm_hour, accumulation_mm, quality,
+        truth_resolution_seconds, onset_publishable, payload_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.source,
@@ -187,13 +228,52 @@ export class ForecastArchive {
       cell,
       Number(input.latitude.toFixed(4)),
       Number(input.longitude.toFixed(4)),
+      input.sourceAssetId ?? null,
       input.rainObserved ? 1 : 0,
       input.rainRateMmHour ?? null,
       input.accumulationMm ?? null,
       input.quality,
+      input.truthResolutionSeconds ?? 3_600,
+      input.onsetPublishable ? 1 : 0,
       JSON.stringify(input.payload),
     );
     return id;
+  }
+
+  saveSourceAsset(input: SourceAssetInput) {
+    const sha256 = createHash('sha256').update(input.bytes).digest('hex');
+    const id = sha256.slice(0, 24);
+    this.database.query(`
+      INSERT OR IGNORE INTO source_assets (
+        id, provider, upstream_key, retrieved_at, sha256, media_type, byte_length, payload
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      input.provider,
+      input.upstreamKey,
+      input.retrievedAt,
+      sha256,
+      input.mediaType,
+      input.bytes.byteLength,
+      input.bytes,
+    );
+    return { id, sha256 };
+  }
+
+  countSourceAssets() {
+    const row = this.database.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM source_assets').get();
+    return row?.count ?? 0;
+  }
+
+  listObservationPoints(limit = 50) {
+    return this.database.query<{ latitude: number; longitude: number }, [number]>(`
+      SELECT latitude, longitude
+      FROM rain_observations
+      WHERE quality != 'rejected'
+      GROUP BY location_cell
+      ORDER BY MAX(observed_at) DESC
+      LIMIT ?
+    `).all(limit);
   }
 
   verifyBrier(verificationVersion: string, through: Date) {
@@ -222,7 +302,7 @@ export class ForecastArchive {
         INSERT OR IGNORE INTO forecast_scores (
           forecast_id, metric, horizon_minutes, verification_version,
           value, observation_count, computed_at
-        ) VALUES (?, 'brier', ?, ?, ?, 1, ?)
+        ) VALUES (?, 'brier_rain_occurrence_point', ?, ?, ?, 1, ?)
       `).run(
         row.forecast_id,
         intervalIndex * 15,

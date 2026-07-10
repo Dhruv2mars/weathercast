@@ -47,6 +47,8 @@
     "api": "bun run server/index.ts",
     "api:dev": "bun --watch server/index.ts",
     "api:ingest-observations": "bun run server/jobs/ingest-observations.ts",
+    "api:ingest-metar": "bun run server/jobs/ingest-metar.ts",
+    "api:issue-verification-points": "bun run server/jobs/issue-verification-points.ts",
     "api:verify": "bun run server/jobs/verify.ts",
     "start": "expo start",
     "android": "expo run:android",
