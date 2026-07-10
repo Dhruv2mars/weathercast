@@ -15,6 +15,7 @@ The client is intentionally honest about data quality. It shows timing, intensit
 - Accessible light/dark UI adapted to iOS, Android, tablet, and web
 - Provider-independent `/v1/nowcast` contract for a calibrated production backend
 - Owned Bun `/v1/nowcast` service with rate limits, request validation, single-flight deduplication, and an immutable forecast archive
+- Prospective radar-study runner with frozen cohorts, scheduled batch issuance, and reproducible source provenance
 
 ## Run locally
 

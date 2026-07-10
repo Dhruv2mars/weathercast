@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import type { Nowcast } from '@/types/weather';
+import { studyDefinitionSchema, type StudyDefinition, type StudyTarget } from './study-contract';
 
 export type NowcastEnvelope = Nowcast & {
   schemaVersion: 1;
@@ -81,6 +82,16 @@ export type RadarNowcastRunInput = {
   algorithmVersion: string;
   inputFrameIds: string[];
   response: unknown;
+};
+
+export type VerificationStudyRadarBatchInput = {
+  studyId: string;
+  scheduledAt: string;
+  issuedAt: string;
+  runs: Array<{
+    targetId: string;
+    run: Omit<RadarNowcastRunInput, 'issuedAt'>;
+  }>;
 };
 
 export function locationCell(latitude: number, longitude: number) {
@@ -173,6 +184,47 @@ export class ForecastArchive {
         computed_at TEXT NOT NULL,
         PRIMARY KEY(run_id, metric, horizon_minutes, verification_version)
       );
+      CREATE TABLE IF NOT EXISTS verification_studies (
+        id TEXT PRIMARY KEY,
+        registered_at TEXT NOT NULL,
+        starts_at TEXT NOT NULL,
+        ends_at TEXT NOT NULL,
+        algorithm_version TEXT NOT NULL,
+        domain TEXT NOT NULL,
+        product TEXT NOT NULL,
+        primary_metric TEXT NOT NULL,
+        issue_cadence_minutes INTEGER NOT NULL CHECK (issue_cadence_minutes = 15),
+        minimum_observation_count_per_horizon INTEGER NOT NULL CHECK (minimum_observation_count_per_horizon >= 100),
+        definition_sha256 TEXT NOT NULL,
+        definition_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS verification_study_targets (
+        study_id TEXT NOT NULL REFERENCES verification_studies(id),
+        target_id TEXT NOT NULL,
+        location_cell TEXT NOT NULL,
+        latitude REAL NOT NULL,
+        longitude REAL NOT NULL,
+        sequence INTEGER NOT NULL CHECK (sequence >= 0),
+        PRIMARY KEY(study_id, target_id),
+        UNIQUE(study_id, location_cell),
+        UNIQUE(study_id, sequence)
+      );
+      CREATE TABLE IF NOT EXISTS verification_study_radar_runs (
+        study_id TEXT NOT NULL REFERENCES verification_studies(id),
+        target_id TEXT NOT NULL,
+        scheduled_at TEXT NOT NULL,
+        issued_at TEXT NOT NULL,
+        source_data_time TEXT NOT NULL,
+        run_id TEXT NOT NULL REFERENCES radar_nowcast_runs(id),
+        PRIMARY KEY(study_id, target_id, scheduled_at),
+        UNIQUE(study_id, target_id, source_data_time),
+        UNIQUE(study_id, run_id),
+        FOREIGN KEY(study_id, target_id)
+          REFERENCES verification_study_targets(study_id, target_id)
+      );
+      CREATE INDEX IF NOT EXISTS verification_study_radar_runs_schedule
+        ON verification_study_radar_runs(study_id, scheduled_at, target_id);
       CREATE INDEX IF NOT EXISTS forecast_issues_cell_fresh
         ON forecast_issues(location_cell, valid_until DESC);
       CREATE TABLE IF NOT EXISTS rain_observations (
@@ -238,6 +290,18 @@ export class ForecastArchive {
         BEFORE UPDATE ON radar_nowcast_scores BEGIN SELECT RAISE(ABORT, 'radar nowcast scores are immutable'); END;
       CREATE TRIGGER IF NOT EXISTS radar_nowcast_scores_no_delete
         BEFORE DELETE ON radar_nowcast_scores BEGIN SELECT RAISE(ABORT, 'radar nowcast scores are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS verification_studies_no_update
+        BEFORE UPDATE ON verification_studies BEGIN SELECT RAISE(ABORT, 'verification studies are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS verification_studies_no_delete
+        BEFORE DELETE ON verification_studies BEGIN SELECT RAISE(ABORT, 'verification studies are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS verification_study_targets_no_update
+        BEFORE UPDATE ON verification_study_targets BEGIN SELECT RAISE(ABORT, 'verification study targets are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS verification_study_targets_no_delete
+        BEFORE DELETE ON verification_study_targets BEGIN SELECT RAISE(ABORT, 'verification study targets are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS verification_study_radar_runs_no_update
+        BEFORE UPDATE ON verification_study_radar_runs BEGIN SELECT RAISE(ABORT, 'verification study radar run links are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS verification_study_radar_runs_no_delete
+        BEFORE DELETE ON verification_study_radar_runs BEGIN SELECT RAISE(ABORT, 'verification study radar run links are immutable'); END;
     `);
     this.ensureColumn('rain_observations', 'source_asset_id', 'TEXT REFERENCES source_assets(id)');
     this.ensureColumn('rain_observations', 'truth_resolution_seconds', 'INTEGER NOT NULL DEFAULT 3600 CHECK (truth_resolution_seconds > 0)');
@@ -375,6 +439,145 @@ export class ForecastArchive {
     `).all(limit);
   }
 
+  listLatestMetarTargets(limit = 400) {
+    return this.database.query<{
+      id: string;
+      latitude: number;
+      longitude: number;
+      observed_at: string;
+    }, [number]>(`
+      WITH ranked AS (
+        SELECT json_extract(payload_json, '$.icaoId') AS id, latitude, longitude, observed_at,
+          ROW_NUMBER() OVER (
+            PARTITION BY json_extract(payload_json, '$.icaoId')
+            ORDER BY observed_at DESC
+          ) AS rank
+        FROM rain_observations
+        WHERE source = 'aviation-weather-metar' AND quality = 'verified'
+      )
+      SELECT id, latitude, longitude, observed_at
+      FROM ranked
+      WHERE rank = 1 AND id IS NOT NULL
+      ORDER BY id
+      LIMIT ?
+    `).all(limit);
+  }
+
+  registerVerificationStudy(input: {
+    definition: StudyDefinition;
+    registeredAt: string;
+    targets: StudyTarget[];
+  }) {
+    const definition = studyDefinitionSchema.parse(input.definition);
+    const registeredTime = new Date(input.registeredAt).getTime();
+    const startTime = new Date(definition.startsAt).getTime();
+    if (!Number.isFinite(registeredTime) || registeredTime >= startTime) {
+      throw new Error('Verification studies must be registered before they start.');
+    }
+    const targetById = new Map(input.targets.map((target) => [target.id, target]));
+    if (
+      targetById.size !== definition.stationIds.length
+      || definition.stationIds.some((id) => !targetById.has(id))
+    ) throw new Error('Verification study targets must exactly match the registered station cohort.');
+    const targets = definition.stationIds.map((id) => targetById.get(id)!);
+    if (targets.some((target) => (
+      !Number.isFinite(target.latitude)
+      || !Number.isFinite(target.longitude)
+      || target.latitude < -90
+      || target.latitude > 90
+      || target.longitude < -180
+      || target.longitude > 180
+    ))) throw new Error('Verification study target coordinates are invalid.');
+    const definitionJson = JSON.stringify({ schemaVersion: 1, ...definition, targets });
+    const definitionSha256 = createHash('sha256').update(definitionJson).digest('hex');
+    const register = this.database.transaction(() => {
+      const result = this.database.query(`
+        INSERT OR IGNORE INTO verification_studies (
+          id, registered_at, starts_at, ends_at, algorithm_version, domain, product,
+          primary_metric, issue_cadence_minutes, minimum_observation_count_per_horizon,
+          definition_sha256, definition_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        definition.id,
+        input.registeredAt,
+        definition.startsAt,
+        definition.endsAt,
+        definition.algorithmVersion,
+        definition.domain,
+        definition.product,
+        definition.primaryMetric,
+        definition.issueCadenceMinutes,
+        definition.minimumObservationCountPerHorizon,
+        definitionSha256,
+        definitionJson,
+      );
+      if (result.changes === 1) {
+        const statement = this.database.query(`
+          INSERT INTO verification_study_targets (
+            study_id, target_id, location_cell, latitude, longitude, sequence
+          ) VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        targets.forEach((target, sequence) => statement.run(
+          definition.id,
+          target.id,
+          locationCell(target.latitude, target.longitude),
+          Number(target.latitude.toFixed(4)),
+          Number(target.longitude.toFixed(4)),
+          sequence,
+        ));
+        return { id: definition.id, definitionSha256, inserted: true, registeredAt: input.registeredAt };
+      }
+      const existing = this.database.query<{
+        registered_at: string;
+        definition_sha256: string;
+      }, [string]>('SELECT registered_at, definition_sha256 FROM verification_studies WHERE id = ?')
+        .get(definition.id);
+      if (!existing || existing.definition_sha256 !== definitionSha256) {
+        throw new Error('Verification study ID is already registered with a different definition.');
+      }
+      return {
+        id: definition.id,
+        definitionSha256,
+        inserted: false,
+        registeredAt: existing.registered_at,
+      };
+    });
+    return register();
+  }
+
+  getVerificationStudy(id: string) {
+    const study = this.database.query<{
+      id: string;
+      registered_at: string;
+      starts_at: string;
+      ends_at: string;
+      algorithm_version: string;
+      domain: string;
+      product: string;
+      definition_sha256: string;
+      definition_json: string;
+      issue_cadence_minutes: number;
+      minimum_observation_count_per_horizon: number;
+    }, [string]>(`
+      SELECT id, registered_at, starts_at, ends_at, algorithm_version, domain, product,
+        definition_sha256, definition_json, issue_cadence_minutes,
+        minimum_observation_count_per_horizon
+      FROM verification_studies WHERE id = ?
+    `).get(id);
+    if (!study) return null;
+    const targets = this.database.query<{
+      id: string;
+      latitude: number;
+      longitude: number;
+    }, [string]>(`
+      SELECT target_id AS id, latitude, longitude
+      FROM verification_study_targets
+      WHERE study_id = ?
+      ORDER BY sequence
+    `).all(id);
+    return { ...study, targets };
+  }
+
   saveRadarFrame(input: RadarFrameInput) {
     const id = createHash('sha256')
       .update(JSON.stringify({ domain: input.domain, product: input.product, observedAt: input.observedAt }))
@@ -412,7 +615,7 @@ export class ForecastArchive {
     `).all(domain, product, limit);
   }
 
-  saveRadarNowcastRun(input: RadarNowcastRunInput) {
+  private saveRadarNowcastRunInternal(input: RadarNowcastRunInput) {
     if (input.inputFrameIds.length < 3) throw new Error('Radar nowcast runs require at least three input frames.');
     const cell = locationCell(input.latitude, input.longitude);
     const id = createHash('sha256')
@@ -424,13 +627,12 @@ export class ForecastArchive {
       .digest('hex')
       .slice(0, 24);
     const responseJson = JSON.stringify(input.response);
-    const save = this.database.transaction(() => {
-      const result = this.database.query(`
+    const result = this.database.query(`
         INSERT OR IGNORE INTO radar_nowcast_runs (
           id, issued_at, source_data_time, location_cell, latitude, longitude,
           domain, product, algorithm_version, response_json
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+    `).run(
         id,
         input.issuedAt,
         input.sourceDataTime,
@@ -442,30 +644,158 @@ export class ForecastArchive {
         input.algorithmVersion,
         responseJson,
       );
-      const statement = this.database.query(`
+    const statement = this.database.query(`
         INSERT OR IGNORE INTO radar_nowcast_inputs (run_id, frame_id, sequence)
         VALUES (?, ?, ?)
-      `);
-      if (result.changes === 1) {
-        input.inputFrameIds.forEach((frameId, sequence) => statement.run(id, frameId, sequence));
-        return { id, inserted: true, issuedAt: input.issuedAt };
-      }
-      const existing = this.database.query<{
-        issued_at: string;
-        response_json: string;
-      }, [string]>('SELECT issued_at, response_json FROM radar_nowcast_runs WHERE id = ?').get(id);
-      const existingFrames = this.database.query<{ frame_id: string }, [string]>(`
+    `);
+    if (result.changes === 1) {
+      input.inputFrameIds.forEach((frameId, sequence) => statement.run(id, frameId, sequence));
+      return { id, inserted: true, issuedAt: input.issuedAt };
+    }
+    const existing = this.database.query<{
+      issued_at: string;
+      response_json: string;
+    }, [string]>('SELECT issued_at, response_json FROM radar_nowcast_runs WHERE id = ?').get(id);
+    const existingFrames = this.database.query<{ frame_id: string }, [string]>(`
         SELECT frame_id FROM radar_nowcast_inputs WHERE run_id = ? ORDER BY sequence
-      `).all(id).map((row) => row.frame_id);
+    `).all(id).map((row) => row.frame_id);
+    if (
+      !existing
+      || existing.response_json !== responseJson
+      || existingFrames.length !== input.inputFrameIds.length
+      || existingFrames.some((frameId, index) => frameId !== input.inputFrameIds[index])
+    ) throw new Error('Radar nowcast rerun is not reproducible.');
+    return { id, inserted: false, issuedAt: existing.issued_at };
+  }
+
+  saveRadarNowcastRun(input: RadarNowcastRunInput) {
+    return this.database.transaction(() => this.saveRadarNowcastRunInternal(input))();
+  }
+
+  saveVerificationStudyRadarBatch(input: VerificationStudyRadarBatchInput) {
+    const study = this.database.query<{
+      starts_at: string;
+      ends_at: string;
+      algorithm_version: string;
+      domain: string;
+      product: string;
+      issue_cadence_minutes: number;
+    }, [string]>(`
+      SELECT starts_at, ends_at, algorithm_version, domain, product, issue_cadence_minutes
+      FROM verification_studies WHERE id = ?
+    `).get(input.studyId);
+    if (!study) throw new Error('Verification study is not registered.');
+    const scheduledTime = new Date(input.scheduledAt).getTime();
+    const issuedTime = new Date(input.issuedAt).getTime();
+    const startTime = new Date(study.starts_at).getTime();
+    const endTime = new Date(study.ends_at).getTime();
+    const cadenceMs = study.issue_cadence_minutes * 60_000;
+    if (
+      !Number.isFinite(scheduledTime)
+      || scheduledTime < startTime
+      || scheduledTime >= endTime
+      || scheduledTime % cadenceMs !== 0
+    ) throw new Error('Study issue is outside its pre-registered schedule.');
+    if (!Number.isFinite(issuedTime) || issuedTime < scheduledTime || issuedTime >= scheduledTime + cadenceMs) {
+      throw new Error('Study issue must be completed within its scheduled cadence window.');
+    }
+    const targets = this.database.query<{
+      target_id: string;
+      location_cell: string;
+    }, [string]>(`
+      SELECT target_id, location_cell
+      FROM verification_study_targets
+      WHERE study_id = ?
+      ORDER BY sequence
+    `).all(input.studyId);
+    if (
+      input.runs.length !== targets.length
+      || input.runs.some((candidate, index) => candidate.targetId !== targets[index]?.target_id)
+    ) throw new Error('Study issue must contain the complete target cohort in registered order.');
+    const sourceDataTimes = new Set(input.runs.map(({ run }) => run.sourceDataTime));
+    if (sourceDataTimes.size !== 1) throw new Error('Study batch runs must use one common radar source time.');
+    input.runs.forEach(({ run }, index) => {
       if (
-        !existing
-        || existing.response_json !== responseJson
-        || existingFrames.length !== input.inputFrameIds.length
-        || existingFrames.some((frameId, index) => frameId !== input.inputFrameIds[index])
-      ) throw new Error('Radar nowcast rerun is not reproducible.');
-      return { id, inserted: false, issuedAt: existing.issued_at };
+        run.algorithmVersion !== study.algorithm_version
+        || run.domain !== study.domain
+        || run.product !== study.product
+      ) throw new Error('Study run provenance does not match the registered algorithm and source.');
+      if (locationCell(run.latitude, run.longitude) !== targets[index]?.location_cell) {
+        throw new Error('Study run location does not match its frozen target.');
+      }
+      const sourceTime = new Date(run.sourceDataTime).getTime();
+      if (!Number.isFinite(sourceTime) || sourceTime > issuedTime) {
+        throw new Error('Study run source time must not be later than issuance.');
+      }
     });
-    return save();
+
+    return this.database.transaction(() => {
+      const statement = this.database.query(`
+        INSERT OR IGNORE INTO verification_study_radar_runs (
+          study_id, target_id, scheduled_at, issued_at, source_data_time, run_id
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      const saved = input.runs.map(({ targetId, run }) => {
+        const result = this.saveRadarNowcastRunInternal({ ...run, issuedAt: input.issuedAt });
+        const link = statement.run(
+          input.studyId,
+          targetId,
+          input.scheduledAt,
+          result.issuedAt,
+          run.sourceDataTime,
+          result.id,
+        );
+        if (link.changes === 0) {
+          const existing = this.database.query<{
+            run_id: string;
+            issued_at: string;
+            source_data_time: string;
+          }, [string, string, string]>(`
+            SELECT run_id, issued_at, source_data_time
+            FROM verification_study_radar_runs
+            WHERE study_id = ? AND target_id = ? AND scheduled_at = ?
+          `).get(input.studyId, targetId, input.scheduledAt);
+          if (
+            !existing
+            || existing.run_id !== result.id
+            || existing.issued_at !== result.issuedAt
+            || existing.source_data_time !== run.sourceDataTime
+          ) throw new Error('Study issue rerun is not reproducible.');
+        }
+        return { targetId, ...result, linked: link.changes === 1 };
+      });
+      return { studyId: input.studyId, scheduledAt: input.scheduledAt, runs: saved };
+    })();
+  }
+
+  listVerificationStudyRadarRuns(studyId: string) {
+    return this.database.query<{
+      target_id: string;
+      scheduled_at: string;
+      issued_at: string;
+      source_data_time: string;
+      run_id: string;
+    }, [string]>(`
+      SELECT target_id, scheduled_at, issued_at, source_data_time, run_id
+      FROM verification_study_radar_runs
+      WHERE study_id = ?
+      ORDER BY scheduled_at, target_id
+    `).all(studyId);
+  }
+
+  getVerificationStudyRadarIssue(studyId: string, scheduledAt: string) {
+    return this.database.query<{
+      target_id: string;
+      scheduled_at: string;
+      issued_at: string;
+      source_data_time: string;
+      run_id: string;
+    }, [string, string]>(`
+      SELECT target_id, scheduled_at, issued_at, source_data_time, run_id
+      FROM verification_study_radar_runs
+      WHERE study_id = ? AND scheduled_at = ?
+      ORDER BY target_id
+    `).all(studyId, scheduledAt);
   }
 
   listRadarNowcastRuns(limit = 20) {

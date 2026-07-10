@@ -1,0 +1,187 @@
+import { Database } from 'bun:sqlite';
+import { describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+import { ForecastArchive } from './archive';
+import { studyDefinitionSchema } from './study-contract';
+
+function definition() {
+  return studyDefinitionSchema.parse({
+    id: 'mrms-metar-conus-2026q3-v1',
+    title: 'Prospective CONUS MRMS rain occurrence study',
+    startsAt: '2026-07-11T00:00:00.000Z',
+    endsAt: '2026-10-01T00:00:00.000Z',
+    algorithmVersion: 'translation-ensemble-v1',
+    domain: 'CONUS',
+    product: 'PrecipRate_00.00',
+    stationIds: ['KHSV', 'KJFK'],
+    issueCadenceMinutes: 15,
+    horizonsMinutes: [0, 15, 30, 45, 60, 75, 90, 105],
+    primaryMetric: 'brier_rain_occurrence_point',
+    minimumObservationCountPerHorizon: 2_000,
+    exclusionPolicy: 'verified prospective observations only; no post-registration cohort changes',
+  });
+}
+
+describe('immutable prospective study registry', () => {
+  test('freezes exact station coordinates and rejects definition changes', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'weathercast-study-'));
+    const path = join(directory, 'archive.sqlite');
+    try {
+      const archive = new ForecastArchive(path);
+      for (const observation of [
+        { id: 'KHSV', latitude: 34.6441, longitude: -86.7862 },
+        { id: 'KJFK', latitude: 40.6392, longitude: -73.7639 },
+      ]) {
+        archive.saveObservation({
+          source: 'aviation-weather-metar',
+          sourceEventId: `${observation.id}:1`,
+          observedAt: '2026-07-10T22:00:00.000Z',
+          latitude: observation.latitude,
+          longitude: observation.longitude,
+          rainObserved: false,
+          quality: 'verified',
+          payload: { icaoId: observation.id },
+        });
+      }
+      const targets = archive.listLatestMetarTargets().map(({ id, latitude, longitude }) => ({
+        id,
+        latitude,
+        longitude,
+      }));
+      const first = archive.registerVerificationStudy({
+        definition: definition(),
+        registeredAt: '2026-07-10T23:00:00.000Z',
+        targets,
+      });
+      expect(first.inserted).toBe(true);
+      expect(archive.registerVerificationStudy({
+        definition: definition(),
+        registeredAt: '2026-07-10T23:30:00.000Z',
+        targets,
+      })).toEqual({ ...first, inserted: false });
+      expect(archive.getVerificationStudy(first.id)).toEqual(expect.objectContaining({
+        definition_sha256: first.definitionSha256,
+        targets,
+      }));
+      expect(() => archive.registerVerificationStudy({
+        definition: { ...definition(), minimumObservationCountPerHorizon: 3_000 },
+        registeredAt: '2026-07-10T23:00:00.000Z',
+        targets,
+      })).toThrow('different definition');
+      archive.close();
+
+      const database = new Database(path);
+      expect(() => database.query('DELETE FROM verification_study_targets WHERE study_id = ?').run(first.id))
+        .toThrow('verification study targets are immutable');
+      expect(() => database.query('UPDATE verification_studies SET ends_at = ? WHERE id = ?')
+        .run('2027-01-01T00:00:00.000Z', first.id)).toThrow('verification studies are immutable');
+      database.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects registration at or after study start and incomplete cohorts', () => {
+    const archive = new ForecastArchive(':memory:');
+    const targets = [{ id: 'KHSV', latitude: 34.6441, longitude: -86.7862 }];
+    expect(() => archive.registerVerificationStudy({
+      definition: definition(),
+      registeredAt: '2026-07-11T00:00:00.000Z',
+      targets,
+    })).toThrow('before they start');
+    expect(() => archive.registerVerificationStudy({
+      definition: definition(),
+      registeredAt: '2026-07-10T23:00:00.000Z',
+      targets,
+    })).toThrow('exactly match');
+    archive.close();
+  });
+
+  test('atomically links a complete radar batch to one scheduled study issue', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'weathercast-study-runs-'));
+    const path = join(directory, 'archive.sqlite');
+    try {
+      const archive = new ForecastArchive(path);
+      const targets = [
+        { id: 'KHSV', latitude: 34.6441, longitude: -86.7862 },
+        { id: 'KJFK', latitude: 40.6392, longitude: -73.7639 },
+      ];
+      archive.registerVerificationStudy({
+        definition: definition(),
+        registeredAt: '2026-07-10T23:00:00.000Z',
+        targets,
+      });
+      const inputFrameIds = ['00:00', '00:02', '00:04'].map((minute, index) => {
+        const observedAt = `2026-07-11T${minute}:00.000Z`;
+        const asset = archive.saveSourceAsset({
+          provider: 'noaa-mrms',
+          upstreamKey: `frame-${index}`,
+          retrievedAt: '2026-07-11T00:05:00.000Z',
+          mediaType: 'application/gzip',
+          bytes: new TextEncoder().encode(`frame-${index}`),
+        });
+        return archive.saveRadarFrame({
+          domain: 'CONUS',
+          product: 'PrecipRate_00.00',
+          observedAt,
+          retrievedAt: '2026-07-11T00:05:00.000Z',
+          objectKey: `frame-${index}`,
+          sourceAssetId: asset.id,
+        });
+      });
+      const issuedAt = '2026-07-11T00:15:30.000Z';
+      const scheduledAt = '2026-07-11T00:15:00.000Z';
+      const runs = targets.map((target) => ({
+        targetId: target.id,
+        run: {
+          sourceDataTime: '2026-07-11T00:04:00.000Z',
+          latitude: target.latitude,
+          longitude: target.longitude,
+          domain: 'CONUS',
+          product: 'PrecipRate_00.00',
+          algorithmVersion: 'translation-ensemble-v1',
+          inputFrameIds,
+          response: { targetId: target.id, frozen: true },
+        },
+      }));
+      const first = archive.saveVerificationStudyRadarBatch({
+        studyId: definition().id,
+        scheduledAt,
+        issuedAt,
+        runs,
+      });
+      expect(first.runs.map((run) => run.linked)).toEqual([true, true]);
+      expect(archive.saveVerificationStudyRadarBatch({
+        studyId: definition().id,
+        scheduledAt,
+        issuedAt,
+        runs,
+      }).runs.map((run) => run.linked)).toEqual([false, false]);
+      expect(archive.listVerificationStudyRadarRuns(definition().id)).toHaveLength(2);
+      expect(() => archive.saveVerificationStudyRadarBatch({
+        studyId: definition().id,
+        scheduledAt: '2026-07-11T00:30:00.000Z',
+        issuedAt: '2026-07-11T00:30:30.000Z',
+        runs: runs.toReversed(),
+      })).toThrow('complete target cohort');
+      expect(archive.listVerificationStudyRadarRuns(definition().id)).toHaveLength(2);
+      expect(() => archive.saveVerificationStudyRadarBatch({
+        studyId: definition().id,
+        scheduledAt: '2026-07-11T00:16:00.000Z',
+        issuedAt: '2026-07-11T00:16:30.000Z',
+        runs,
+      })).toThrow('pre-registered schedule');
+      archive.close();
+
+      const database = new Database(path);
+      expect(() => database.query('DELETE FROM verification_study_radar_runs').run())
+        .toThrow('verification study radar run links are immutable');
+      database.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
