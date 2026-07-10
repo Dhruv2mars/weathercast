@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { validateProductionClientConfig } from './production';
+import { validateProductionClientConfig } from './app.config';
 
 const valid = {
   EXPO_PUBLIC_NOWCAST_API_URL: 'https://api.weathercast.app',
