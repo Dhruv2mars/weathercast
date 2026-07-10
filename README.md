@@ -14,6 +14,7 @@ The client is intentionally honest about data quality. It shows timing, intensit
 - Licensed radar tile integration point with an explicit unavailable state
 - Accessible light/dark UI adapted to iOS, Android, tablet, and web
 - Provider-independent `/v1/nowcast` contract for a calibrated production backend
+- Owned Bun `/v1/nowcast` service with rate limits, request validation, single-flight deduplication, and an immutable forecast archive
 
 ## Run locally
 
@@ -46,6 +47,8 @@ If no nowcast API is configured, the app uses Open-Meteo's 15-minute numerical f
 
 The `production` EAS profile fails closed when the nowcast API, radar manifest, or restricted Android Maps key is missing. Preview and development profiles retain honest fallback states for engineering work.
 
+Run the owned API locally with `bun run api`. Its default Open-Meteo adapter is evaluation-only, always returns Standard/uncalibrated coverage, and is rejected when `NODE_ENV=production`. Production requires the licensed normalized-upstream adapter described in [server/README.md](server/README.md).
+
 ## Quality gates
 
 ```bash
@@ -54,7 +57,7 @@ bunx expo-doctor
 bun run export
 ```
 
-Tests cover rain-event extraction, confidence behavior, alert decisions, and persisted preference validation. See [release checklist](docs/release-checklist.md) for store and operational gates.
+Tests cover rain-event extraction, confidence behavior, alert decisions, persisted preferences, API validation/rate limiting, exact 120-minute contracts, immutable archive-before-serve behavior, conditional requests, and 50-way request deduplication. See [release checklist](docs/release-checklist.md) for store and operational gates.
 
 ## Architecture
 

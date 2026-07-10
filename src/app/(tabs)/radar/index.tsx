@@ -42,7 +42,7 @@ export default function RadarScreen() {
           {nowcast.data?.headline ?? 'Rain layer unavailable'}
         </Text>
         <Text selectable style={{ color: theme.secondaryText, lineHeight: 20 }}>
-          {radar.data
+          {radar.data?.frames.length
             ? 'Licensed radar layer · latest frame shown'
             : 'No licensed radar feed is configured here. Point guidance remains available; no synthetic radar is shown.'}
         </Text>

@@ -10,7 +10,9 @@ Expo Router provides native navigation. TanStack Query manages server state, ret
 
 ## Production accuracy platform
 
-The client is ready for a `/v1/nowcast` backend. That service should ingest licensed radar, satellite, station, lightning, and numerical-model feeds; archive every issued forecast; verify it against observations; calibrate by location, season, regime, and lead time; and return the same normalized contract. Raw provider credentials must never ship in the app.
+The repository includes a Bun `/v1/nowcast` boundary. It validates and rate-limits requests, deduplicates simultaneous requests for a location cell, normalizes provider output, and archives the exact response before returning success. Development uses explicitly uncalibrated Open-Meteo evaluation guidance. Production refuses that adapter and requires a server-authenticated normalized upstream.
+
+The included SQLite archive is the single-instance tracer bullet. Global operation still requires Postgres/PostGIS, content-addressed raw-input object storage, licensed radar/satellite/station feeds, provider freshness alarms, a verification worker, distributed cache/rate limiting, and region-aware deployment. No Precision tier or superiority claim is permitted until those inputs and held-out calibration gates pass.
 
 ## Privacy
 

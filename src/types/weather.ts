@@ -56,6 +56,17 @@ export type Nowcast = {
   dataTier: DataTier;
   source: string;
   event: RainEvent | null;
+  schemaVersion?: 1;
+  forecastId?: string;
+  generatedAt?: string;
+  validUntil?: string;
+  timezone?: string;
+  sourceDataTime?: string | null;
+  calibrationStatus?: 'uncalibrated' | 'provisional' | 'calibrated';
+  coverage?: {
+    reason: string;
+    spatialResolutionKm: number | null;
+  };
 };
 
 export type AlertPreferences = {

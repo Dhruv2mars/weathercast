@@ -12,6 +12,7 @@ export function getAlertPlan(nowcast: Nowcast, preferences: AlertPreferences, no
 
   const triggerAt = new Date(new Date(nowcast.event.startTime).getTime() - preferences.leadMinutes * 60_000);
   if (triggerAt.getTime() <= now.getTime()) return null;
+  if (nowcast.validUntil && triggerAt.getTime() > new Date(nowcast.validUntil).getTime()) return null;
 
   const intensity = nowcast.event.peakIntensity === 'trace' ? 'Very light' : nowcast.event.peakIntensity;
   return {

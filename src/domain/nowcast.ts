@@ -50,7 +50,7 @@ function durationLabel(minutes: number) {
 export function buildNowcast(forecast: NormalizedForecast, now = new Date()): Nowcast {
   const intervals = forecast.intervals
     .filter((interval) => new Date(interval.time).getTime() >= now.getTime() - SLOT_MINUTES * 60_000)
-    .slice(0, HORIZON_MINUTES / SLOT_MINUTES + 1);
+    .slice(0, HORIZON_MINUTES / SLOT_MINUTES);
   const firstWetIndex = intervals.findIndex((interval) => interval.precipitationMm >= WET_THRESHOLD_MM);
 
   if (firstWetIndex < 0) {

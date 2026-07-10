@@ -43,4 +43,12 @@ describe('getAlertPlan', () => {
   test('skips alerts whose trigger time already passed', () => {
     expect(getAlertPlan(base, { enabled: true, leadMinutes: 30, significantOnly: false }, now)).toBeNull();
   });
+
+  test('does not schedule an alert beyond the forecast validity window', () => {
+    const expiring = {
+      ...base,
+      validUntil: '2026-07-10T10:04:00.000Z',
+    };
+    expect(getAlertPlan(expiring, { enabled: true, leadMinutes: 10, significantOnly: false }, now)).toBeNull();
+  });
 });

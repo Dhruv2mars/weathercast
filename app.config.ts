@@ -1,19 +1,44 @@
 import type { ExpoConfig } from 'expo/config';
 
+export type ProductionClientConfig = {
+  nowcastApiUrl: string;
+  radarManifestUrl: string;
+  googleMapsApiKey: string;
+};
+
+function httpsUrl(name: string, value: string | undefined) {
+  if (!value?.trim()) throw new Error(`${name} is required.`);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${name} must be a valid URL.`);
+  }
+  if (url.protocol !== 'https:') throw new Error(`${name} must use HTTPS.`);
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname.endsWith('.example')) {
+    throw new Error(`${name} must use a deployed production host.`);
+  }
+  return url.toString().replace(/\/$/, '');
+}
+
+export function validateProductionClientConfig(environment: Record<string, string | undefined>): ProductionClientConfig {
+  const googleMapsApiKey = environment.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
+  if (!googleMapsApiKey || googleMapsApiKey.length < 20 || /replace|example/i.test(googleMapsApiKey)) {
+    throw new Error('EXPO_PUBLIC_GOOGLE_MAPS_API_KEY must be a restricted production Android key.');
+  }
+  return {
+    nowcastApiUrl: httpsUrl('EXPO_PUBLIC_NOWCAST_API_URL', environment.EXPO_PUBLIC_NOWCAST_API_URL),
+    radarManifestUrl: httpsUrl('EXPO_PUBLIC_RADAR_MANIFEST_URL', environment.EXPO_PUBLIC_RADAR_MANIFEST_URL),
+    googleMapsApiKey,
+  };
+}
+
 export default (): ExpoConfig => {
   const googleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
   const isProductionBuild = process.env.EAS_BUILD_PROFILE === 'production';
 
   if (isProductionBuild) {
-    const required = {
-      EXPO_PUBLIC_NOWCAST_API_URL: process.env.EXPO_PUBLIC_NOWCAST_API_URL,
-      EXPO_PUBLIC_RADAR_MANIFEST_URL: process.env.EXPO_PUBLIC_RADAR_MANIFEST_URL,
-      EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: googleMapsApiKey,
-    };
-    const missing = Object.entries(required).filter(([, value]) => !value?.trim()).map(([name]) => name);
-    if (missing.length > 0) {
-      throw new Error(`Production build blocked: configure ${missing.join(', ')} in the EAS production environment.`);
-    }
+    validateProductionClientConfig(process.env);
   }
 
   return {
