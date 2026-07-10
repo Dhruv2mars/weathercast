@@ -1,8 +1,8 @@
 {
   "id": "mrms-metar-conus-2026q3-v1",
-  "title": "Prospective CONUS MRMS rain occurrence study",
-  "startsAt": "2026-07-11T00:00:00.000Z",
-  "endsAt": "2026-10-01T00:00:00.000Z",
+  "title": "Prospective CONUS airport MRMS rain occurrence study",
+  "startsAt": "2026-08-01T00:00:00.000Z",
+  "endsAt": "2026-10-22T00:00:00.000Z",
   "algorithmVersion": "translation-ensemble-v1",
   "domain": "CONUS",
   "product": "PrecipRate_00.00",
@@ -16,5 +16,8 @@
   "horizonsMinutes": [0, 15, 30, 45, 60, 75, 90, 105],
   "primaryMetric": "brier_rain_occurrence_point",
   "minimumObservationCountPerHorizon": 10000,
+  "minimumIssuanceCompleteness": 0.95,
+  "observationSamplingPolicy": "one nearest verified METAR observation per run and horizon; ties use earliest observation",
+  "validTimePolicy": "observation must be at or after issuance and before study end",
   "exclusionPolicy": "verified prospective observations only; no post-registration cohort changes"
 }

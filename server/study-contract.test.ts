@@ -16,6 +16,9 @@ function definition() {
     horizonsMinutes: [0, 15, 30, 45, 60, 75, 90, 105],
     primaryMetric: 'brier_rain_occurrence_point',
     minimumObservationCountPerHorizon: 5_000,
+    minimumIssuanceCompleteness: 0.95,
+    observationSamplingPolicy: 'one nearest verified METAR observation per run and horizon; ties use earliest observation',
+    validTimePolicy: 'observation must be at or after issuance and before study end',
     exclusionPolicy: 'verified prospective observations only; no post-registration cohort changes',
   };
 }
@@ -41,5 +44,13 @@ describe('prospective study definition', () => {
     const misaligned = definition();
     misaligned.startsAt = '2026-07-11T00:01:00.000Z';
     expect(studyDefinitionSchema.safeParse(misaligned).success).toBe(false);
+    expect(studyDefinitionSchema.safeParse({
+      ...definition(),
+      startsAt: '2026-07-11T00:00:00Z',
+    }).success).toBe(false);
+    expect(studyDefinitionSchema.safeParse({
+      ...definition(),
+      minimumIssuanceCompleteness: 0.8,
+    }).success).toBe(false);
   });
 });

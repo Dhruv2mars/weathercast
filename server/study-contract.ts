@@ -16,6 +16,9 @@ export const studyDefinitionSchema = z.object({
   horizonsMinutes: z.array(z.number().int().min(0).max(105).multipleOf(15)).min(1).max(8),
   primaryMetric: z.literal('brier_rain_occurrence_point'),
   minimumObservationCountPerHorizon: z.number().int().min(100).max(10_000_000),
+  minimumIssuanceCompleteness: z.literal(0.95),
+  observationSamplingPolicy: z.literal('one nearest verified METAR observation per run and horizon; ties use earliest observation'),
+  validTimePolicy: z.literal('observation must be at or after issuance and before study end'),
   exclusionPolicy: z.literal('verified prospective observations only; no post-registration cohort changes'),
 }).superRefine((value, context) => {
   const starts = new Date(value.startsAt).getTime();
@@ -33,6 +36,16 @@ export const studyDefinitionSchema = z.object({
       code: 'custom',
       path: ['startsAt'],
       message: 'Study boundaries must align to the 15-minute issuance cadence.',
+    });
+  }
+  if (
+    new Date(starts).toISOString() !== value.startsAt
+    || new Date(ends).toISOString() !== value.endsAt
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['startsAt'],
+      message: 'Study boundaries must use canonical UTC ISO timestamps.',
     });
   }
   if (new Set(value.stationIds).size !== value.stationIds.length) {

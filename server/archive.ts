@@ -5,6 +5,7 @@ import { dirname } from 'node:path';
 
 import type { Nowcast } from '@/types/weather';
 import { studyDefinitionSchema, type StudyDefinition, type StudyTarget } from './study-contract';
+import { computeVerificationStudyReport, type StudyVerificationObservation, type StudyVerificationRun } from './study-verification';
 
 export type NowcastEnvelope = Nowcast & {
   schemaVersion: 1;
@@ -96,6 +97,11 @@ export type VerificationStudyRadarBatchInput = {
 
 export function locationCell(latitude: number, longitude: number) {
   return `${latitude.toFixed(4)},${longitude.toFixed(4)}`;
+}
+
+function isCanonicalIsoTimestamp(value: string) {
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
 }
 
 export function createForecastId(cell: string, provider: string, issuedAt: string, response: Nowcast) {
@@ -225,6 +231,16 @@ export class ForecastArchive {
       );
       CREATE INDEX IF NOT EXISTS verification_study_radar_runs_schedule
         ON verification_study_radar_runs(study_id, scheduled_at, target_id);
+      CREATE TABLE IF NOT EXISTS verification_study_reports (
+        study_id TEXT NOT NULL REFERENCES verification_studies(id),
+        report_version TEXT NOT NULL,
+        generated_at TEXT NOT NULL,
+        eligible_for_publication INTEGER NOT NULL CHECK (eligible_for_publication IN (0, 1)),
+        report_sha256 TEXT NOT NULL,
+        report_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(study_id, report_version)
+      );
       CREATE INDEX IF NOT EXISTS forecast_issues_cell_fresh
         ON forecast_issues(location_cell, valid_until DESC);
       CREATE TABLE IF NOT EXISTS rain_observations (
@@ -302,6 +318,10 @@ export class ForecastArchive {
         BEFORE UPDATE ON verification_study_radar_runs BEGIN SELECT RAISE(ABORT, 'verification study radar run links are immutable'); END;
       CREATE TRIGGER IF NOT EXISTS verification_study_radar_runs_no_delete
         BEFORE DELETE ON verification_study_radar_runs BEGIN SELECT RAISE(ABORT, 'verification study radar run links are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS verification_study_reports_no_update
+        BEFORE UPDATE ON verification_study_reports BEGIN SELECT RAISE(ABORT, 'verification study reports are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS verification_study_reports_no_delete
+        BEFORE DELETE ON verification_study_reports BEGIN SELECT RAISE(ABORT, 'verification study reports are immutable'); END;
     `);
     this.ensureColumn('rain_observations', 'source_asset_id', 'TEXT REFERENCES source_assets(id)');
     this.ensureColumn('rain_observations', 'truth_resolution_seconds', 'INTEGER NOT NULL DEFAULT 3600 CHECK (truth_resolution_seconds > 0)');
@@ -471,7 +491,7 @@ export class ForecastArchive {
     const definition = studyDefinitionSchema.parse(input.definition);
     const registeredTime = new Date(input.registeredAt).getTime();
     const startTime = new Date(definition.startsAt).getTime();
-    if (!Number.isFinite(registeredTime) || registeredTime >= startTime) {
+    if (!isCanonicalIsoTimestamp(input.registeredAt) || registeredTime >= startTime) {
       throw new Error('Verification studies must be registered before they start.');
     }
     const targetById = new Map(input.targets.map((target) => [target.id, target]));
@@ -647,6 +667,9 @@ export class ForecastArchive {
     }
     const sourceTime = new Date(input.sourceDataTime).getTime();
     const issuedTime = new Date(input.issuedAt).getTime();
+    if (!isCanonicalIsoTimestamp(input.sourceDataTime) || !isCanonicalIsoTimestamp(input.issuedAt)) {
+      throw new Error('Radar nowcast run timestamps must use canonical UTC ISO format.');
+    }
     if (!Number.isFinite(sourceTime) || sourceTime !== observedTimes.at(-1)) {
       throw new Error('Radar nowcast source time must match the newest input frame.');
     }
@@ -727,7 +750,8 @@ export class ForecastArchive {
     const endTime = new Date(study.ends_at).getTime();
     const cadenceMs = study.issue_cadence_minutes * 60_000;
     if (
-      !Number.isFinite(scheduledTime)
+      !isCanonicalIsoTimestamp(input.scheduledAt)
+      || !isCanonicalIsoTimestamp(input.issuedAt)
       || scheduledTime < startTime
       || scheduledTime >= endTime
       || scheduledTime % cadenceMs !== 0
@@ -834,6 +858,132 @@ export class ForecastArchive {
       WHERE study_id = ? AND scheduled_at = ?
       ORDER BY target_id
     `).all(studyId, scheduledAt);
+  }
+
+  buildVerificationStudyReport(studyId: string, asOf: Date) {
+    if (!Number.isFinite(asOf.getTime())) throw new Error('Study report cutoff is invalid.');
+    const study = this.database.query<{
+      registered_at: string;
+      definition_sha256: string;
+      definition_json: string;
+    }, [string]>(`
+      SELECT registered_at, definition_sha256, definition_json
+      FROM verification_studies WHERE id = ?
+    `).get(studyId);
+    if (!study) throw new Error('Verification study is not registered.');
+    const storedDefinitionSha256 = createHash('sha256').update(study.definition_json).digest('hex');
+    if (storedDefinitionSha256 !== study.definition_sha256) {
+      throw new Error('Verification study definition checksum is invalid.');
+    }
+    const definition = studyDefinitionSchema.parse(JSON.parse(study.definition_json));
+    const targets = this.database.query<{ id: string }, [string]>(`
+      SELECT target_id AS id
+      FROM verification_study_targets
+      WHERE study_id = ?
+      ORDER BY sequence
+    `).all(studyId).map((target) => target.id);
+    const runs = this.database.query<{
+      run_id: string;
+      target_id: string;
+      scheduled_at: string;
+      issued_at: string;
+      response_json: string;
+    }, [string]>(`
+      SELECT link.run_id, link.target_id, link.scheduled_at, link.issued_at, run.response_json
+      FROM verification_study_radar_runs link
+      JOIN radar_nowcast_runs run ON run.id = link.run_id
+      WHERE link.study_id = ?
+      ORDER BY link.scheduled_at, link.target_id
+    `).all(studyId).map((run): StudyVerificationRun => ({
+      runId: run.run_id,
+      targetId: run.target_id,
+      scheduledAt: run.scheduled_at,
+      issuedAt: run.issued_at,
+      response: JSON.parse(run.response_json),
+    }));
+    const observations = this.database.query<{
+      id: string;
+      target_id: string;
+      observed_at: string;
+      rain_observed: number;
+    }, [string, string]>(`
+      SELECT observation.id, json_extract(observation.payload_json, '$.icaoId') AS target_id,
+        observation.observed_at, observation.rain_observed
+      FROM rain_observations observation
+      JOIN verification_study_targets target
+        ON target.study_id = ?
+        AND target.target_id = json_extract(observation.payload_json, '$.icaoId')
+      WHERE observation.source = 'aviation-weather-metar'
+        AND observation.quality = 'verified'
+        AND observation.observed_at < ?
+      ORDER BY target.sequence, observation.observed_at, observation.id
+    `).all(studyId, new Date(Math.min(asOf.getTime(), new Date(definition.endsAt).getTime())).toISOString())
+      .map((observation): StudyVerificationObservation => ({
+        id: observation.id,
+        targetId: observation.target_id,
+        observedAt: observation.observed_at,
+        rainObserved: observation.rain_observed === 1,
+      }));
+    return computeVerificationStudyReport({
+      definition,
+      definitionSha256: study.definition_sha256,
+      registeredAt: study.registered_at,
+      targetIds: targets,
+      runs,
+      observations,
+      asOf,
+    });
+  }
+
+  saveVerificationStudyReport(input: { studyId: string; reportVersion: string; asOf: Date }) {
+    if (!/^[a-z0-9][a-z0-9._-]{2,63}$/i.test(input.reportVersion)) {
+      throw new Error('Study report version is invalid.');
+    }
+    const report = this.buildVerificationStudyReport(input.studyId, input.asOf);
+    const reportJson = JSON.stringify(report);
+    const reportSha256 = createHash('sha256').update(reportJson).digest('hex');
+    const result = this.database.query(`
+      INSERT OR IGNORE INTO verification_study_reports (
+        study_id, report_version, generated_at, eligible_for_publication,
+        report_sha256, report_json
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      input.studyId,
+      input.reportVersion,
+      report.generatedAt,
+      report.eligibleForPublication ? 1 : 0,
+      reportSha256,
+      reportJson,
+    );
+    if (result.changes === 0) {
+      const existing = this.database.query<{
+        report_sha256: string;
+        report_json: string;
+      }, [string, string]>(`
+        SELECT report_sha256, report_json
+        FROM verification_study_reports
+        WHERE study_id = ? AND report_version = ?
+      `).get(input.studyId, input.reportVersion);
+      if (!existing || existing.report_sha256 !== reportSha256 || existing.report_json !== reportJson) {
+        throw new Error('Study report version is already archived with different evidence.');
+      }
+    }
+    return { reportVersion: input.reportVersion, reportSha256, inserted: result.changes === 1, report };
+  }
+
+  listVerificationStudyReports(studyId: string) {
+    return this.database.query<{
+      report_version: string;
+      generated_at: string;
+      eligible_for_publication: number;
+      report_sha256: string;
+      report_json: string;
+    }, [string]>(`
+      SELECT report_version, generated_at, eligible_for_publication, report_sha256, report_json
+      FROM verification_study_reports
+      WHERE study_id = ?
+      ORDER BY generated_at, report_version
+    `).all(studyId);
   }
 
   listRadarNowcastRuns(limit = 20) {
