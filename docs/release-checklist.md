@@ -12,6 +12,7 @@
 ## Data and accuracy gates
 
 - [ ] Owned `/v1/nowcast` backend configured; evaluation fallback disabled
+- [ ] EAS production environment passes the fail-closed config validation
 - [ ] Commercial rights and redistribution terms signed for every regional source
 - [ ] Radar manifest/tile CDN configured for Precision regions
 - [ ] Android-restricted Google Maps SDK key configured for the release signing certificate

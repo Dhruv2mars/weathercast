@@ -2,6 +2,19 @@ import type { ExpoConfig } from 'expo/config';
 
 export default (): ExpoConfig => {
   const googleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const isProductionBuild = process.env.EAS_BUILD_PROFILE === 'production';
+
+  if (isProductionBuild) {
+    const required = {
+      EXPO_PUBLIC_NOWCAST_API_URL: process.env.EXPO_PUBLIC_NOWCAST_API_URL,
+      EXPO_PUBLIC_RADAR_MANIFEST_URL: process.env.EXPO_PUBLIC_RADAR_MANIFEST_URL,
+      EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: googleMapsApiKey,
+    };
+    const missing = Object.entries(required).filter(([, value]) => !value?.trim()).map(([name]) => name);
+    if (missing.length > 0) {
+      throw new Error(`Production build blocked: configure ${missing.join(', ')} in the EAS production environment.`);
+    }
+  }
 
   return {
     name: 'Weathercast',

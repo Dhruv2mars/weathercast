@@ -44,6 +44,8 @@ Copy `.env.example` to `.env.local` when using owned services.
 
 If no nowcast API is configured, the app uses Open-Meteo's 15-minute numerical forecast as a **Standard** coverage evaluation fallback. That path is not radar nowcasting and its free/open-access terms are not a substitute for a commercial data agreement. Production distribution must configure an owned backend and licensed providers. Android safely shows a no-map state when no Maps key is configured instead of initializing the native Google Maps SDK.
 
+The `production` EAS profile fails closed when the nowcast API, radar manifest, or restricted Android Maps key is missing. Preview and development profiles retain honest fallback states for engineering work.
+
 ## Quality gates
 
 ```bash
