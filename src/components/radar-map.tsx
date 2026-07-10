@@ -2,15 +2,16 @@ import MapView, { Circle, Marker, UrlTile } from 'react-native-maps';
 import { Platform, Text, useColorScheme, View } from 'react-native';
 
 import { spacing, useAppTheme } from '@/constants/theme';
+import { canRenderNativeMap } from '@/domain/map';
 import type { Place, RadarManifest } from '@/types/weather';
 
 export function RadarMap({ place, manifest }: { place: Place; manifest: RadarManifest | null | undefined }) {
   const scheme = useColorScheme();
   const theme = useAppTheme();
   const frame = manifest?.frames.at(-1);
-  const hasAndroidMapKey = Boolean(process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY);
+  const canRenderMap = canRenderNativeMap(Platform.OS, process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY);
 
-  if (Platform.OS === 'android' && !hasAndroidMapKey) {
+  if (!canRenderMap) {
     return (
       <View
         accessibilityRole="image"
