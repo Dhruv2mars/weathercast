@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { ForecastArchive } from '../archive';
+import { applyCalibrationArtifact } from '../calibration';
 import { validateRadarBatchDecoderOutput } from '../radar-nowcast-runner';
 import { getScheduledIssueTime, selectStudyRadarFrames } from '../study-issuance';
 
@@ -80,6 +81,7 @@ try {
       sourceDataTime,
       inputSha256: paths.map((item) => item.sha256),
     });
+    const calibrationArtifact = archive.getEvaluationCalibrationArtifact(studyId);
     const issuedAt = new Date().toISOString();
     const saved = archive.saveVerificationStudyRadarBatch({
       studyId,
@@ -95,7 +97,9 @@ try {
           product: study.product,
           algorithmVersion: nowcast.algorithmVersion,
           inputFrameIds: frames.map((frame) => frame.id),
-          response: nowcast,
+          response: calibrationArtifact
+            ? applyCalibrationArtifact(nowcast, calibrationArtifact)
+            : nowcast,
         },
       })),
     });

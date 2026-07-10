@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { ForecastArchive } from '../archive';
+import { applyCalibrationArtifact } from '../calibration';
 import { coordinatesSchema } from '../contracts';
 import { validateRadarDecoderOutput } from '../radar-nowcast-runner';
 
@@ -54,13 +55,23 @@ try {
   clearTimeout(timeout);
   const [output, errorOutput] = await Promise.all([outputPromise, errorPromise]);
   if (exitCode !== 0) throw new Error(`Radar decoder failed: ${errorOutput.trim().slice(0, 500)}`);
-  const nowcast = validateRadarDecoderOutput({
+  const decodedNowcast = validateRadarDecoderOutput({
     output,
     latitude: coordinates.latitude,
     longitude: coordinates.longitude,
     sourceDataTime: frames.at(-1)!.observed_at,
     inputSha256: paths.map((item) => item.sha256),
   });
+  const calibrationArtifactId = process.env.CALIBRATION_ARTIFACT_ID?.trim();
+  const calibrationArtifact = calibrationArtifactId
+    ? archive.getCalibrationArtifact(calibrationArtifactId)
+    : null;
+  if (calibrationArtifactId && !calibrationArtifact) {
+    throw new Error('CALIBRATION_ARTIFACT_ID does not identify an archived calibration artifact.');
+  }
+  const nowcast = calibrationArtifact
+    ? applyCalibrationArtifact(decodedNowcast, calibrationArtifact)
+    : decodedNowcast;
   const issuedAt = new Date().toISOString();
   const saved = archive.saveRadarNowcastRun({
     issuedAt,
