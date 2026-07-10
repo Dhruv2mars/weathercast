@@ -199,4 +199,75 @@ describe('prospective study report', () => {
       issuanceCompleteness: null,
     }));
   });
+
+  test('scores truth after a late issuance and ignores an already expired interval', () => {
+    const study = definition({ horizonsMinutes: [0] });
+    const baseInput = {
+      definition: study,
+      definitionSha256: '1'.repeat(64),
+      registeredAt: '2026-07-10T23:00:00.000Z',
+      targetIds: ['KHSV'],
+      observations: [
+        {
+          id: 'excluded-before-late-issuance',
+          targetId: 'KHSV',
+          observedAt: '2026-07-11T00:08:00.000Z',
+          rainObserved: false,
+        },
+        {
+          id: 'after-late-issuance',
+          targetId: 'KHSV',
+          observedAt: '2026-07-11T00:12:00.000Z',
+          rainObserved: true,
+        },
+      ],
+      asOf: new Date('2026-07-11T00:30:00.000Z'),
+    };
+    const scorable = computeVerificationStudyReport({
+      ...baseInput,
+      runs: [{
+        runId: 'late-but-scorable',
+        targetId: 'KHSV',
+        scheduledAt: study.startsAt,
+        issuedAt: '2026-07-11T00:10:00.000Z',
+        response: nowcast(study.startsAt),
+      }],
+    });
+    expect(scorable.horizons[0]).toEqual(expect.objectContaining({
+      forecastCount: 1,
+      observationCount: 1,
+    }));
+    const expired = computeVerificationStudyReport({
+      ...baseInput,
+      runs: [{
+        runId: 'expired-before-issuance',
+        targetId: 'KHSV',
+        scheduledAt: study.startsAt,
+        issuedAt: '2026-07-11T00:16:00.000Z',
+        response: nowcast(study.startsAt),
+      }],
+    });
+    expect(expired.horizons[0]).toEqual(expect.objectContaining({
+      forecastCount: 0,
+      observationCount: 0,
+      missingObservationCount: 0,
+    }));
+  });
+
+  test('permanently blocks publication when report rules were not preregistered', () => {
+    const study = definition({ horizonsMinutes: [0] });
+    const report = computeVerificationStudyReport({
+      definition: study,
+      definitionSha256: '2'.repeat(64),
+      registeredAt: '2026-07-10T23:00:00.000Z',
+      targetIds: ['KHSV'],
+      runs: [],
+      observations: [],
+      asOf: new Date(study.endsAt),
+      reportPolicyPreregistered: false,
+    });
+    expect(report.reportPolicyPreregistered).toBe(false);
+    expect(report.gateFailures).toContain('report_policy_not_preregistered');
+    expect(report.eligibleForPublication).toBe(false);
+  });
 });

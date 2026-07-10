@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { studyDefinitionSchema } from './study-contract';
+import { parseStoredStudyDefinition, studyDefinitionSchema } from './study-contract';
 
 function definition() {
   return {
@@ -52,5 +52,26 @@ describe('prospective study definition', () => {
       ...definition(),
       minimumIssuanceCompleteness: 0.8,
     }).success).toBe(false);
+    expect(() => studyDefinitionSchema.safeParse({
+      ...definition(),
+      startsAt: '2026-02-30T00:00:00.000Z',
+    })).not.toThrow();
+  });
+
+  test('reads legacy studies diagnostically without pretending report rules were preregistered', () => {
+    const legacy = definition();
+    const {
+      minimumIssuanceCompleteness: _minimumIssuanceCompleteness,
+      observationSamplingPolicy: _observationSamplingPolicy,
+      validTimePolicy: _validTimePolicy,
+      ...legacyDefinition
+    } = legacy;
+    const parsed = parseStoredStudyDefinition({ schemaVersion: 1, ...legacyDefinition });
+    expect(parsed).toEqual(expect.objectContaining({
+      schemaVersion: 1,
+      reportPolicyPreregistered: false,
+      definition: expect.objectContaining({ minimumIssuanceCompleteness: 0.95 }),
+    }));
+    expect(parseStoredStudyDefinition({ schemaVersion: 2, ...definition() }).reportPolicyPreregistered).toBe(true);
   });
 });

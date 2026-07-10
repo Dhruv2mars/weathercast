@@ -4,7 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import type { Nowcast } from '@/types/weather';
-import { studyDefinitionSchema, type StudyDefinition, type StudyTarget } from './study-contract';
+import { parseStoredStudyDefinition, studyDefinitionSchema, type StudyDefinition, type StudyTarget } from './study-contract';
 import { computeVerificationStudyReport, type StudyVerificationObservation, type StudyVerificationRun } from './study-verification';
 
 export type NowcastEnvelope = Nowcast & {
@@ -508,7 +508,7 @@ export class ForecastArchive {
       || target.longitude < -180
       || target.longitude > 180
     ))) throw new Error('Verification study target coordinates are invalid.');
-    const definitionJson = JSON.stringify({ schemaVersion: 1, ...definition, targets });
+    const definitionJson = JSON.stringify({ schemaVersion: 2, ...definition, targets });
     const definitionSha256 = createHash('sha256').update(definitionJson).digest('hex');
     const register = this.database.transaction(() => {
       const result = this.database.query(`
@@ -860,7 +860,7 @@ export class ForecastArchive {
     `).all(studyId, scheduledAt);
   }
 
-  buildVerificationStudyReport(studyId: string, asOf: Date) {
+  private buildVerificationStudyReportInternal(studyId: string, asOf: Date) {
     if (!Number.isFinite(asOf.getTime())) throw new Error('Study report cutoff is invalid.');
     const study = this.database.query<{
       registered_at: string;
@@ -875,7 +875,7 @@ export class ForecastArchive {
     if (storedDefinitionSha256 !== study.definition_sha256) {
       throw new Error('Verification study definition checksum is invalid.');
     }
-    const definition = studyDefinitionSchema.parse(JSON.parse(study.definition_json));
+    const { definition, reportPolicyPreregistered } = parseStoredStudyDefinition(JSON.parse(study.definition_json));
     const targets = this.database.query<{ id: string }, [string]>(`
       SELECT target_id AS id
       FROM verification_study_targets
@@ -932,43 +932,50 @@ export class ForecastArchive {
       runs,
       observations,
       asOf,
+      reportPolicyPreregistered,
     });
+  }
+
+  buildVerificationStudyReport(studyId: string, asOf: Date) {
+    return this.database.transaction(() => this.buildVerificationStudyReportInternal(studyId, asOf))();
   }
 
   saveVerificationStudyReport(input: { studyId: string; reportVersion: string; asOf: Date }) {
     if (!/^[a-z0-9][a-z0-9._-]{2,63}$/i.test(input.reportVersion)) {
       throw new Error('Study report version is invalid.');
     }
-    const report = this.buildVerificationStudyReport(input.studyId, input.asOf);
-    const reportJson = JSON.stringify(report);
-    const reportSha256 = createHash('sha256').update(reportJson).digest('hex');
-    const result = this.database.query(`
-      INSERT OR IGNORE INTO verification_study_reports (
-        study_id, report_version, generated_at, eligible_for_publication,
-        report_sha256, report_json
-      ) VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      input.studyId,
-      input.reportVersion,
-      report.generatedAt,
-      report.eligibleForPublication ? 1 : 0,
-      reportSha256,
-      reportJson,
-    );
-    if (result.changes === 0) {
-      const existing = this.database.query<{
-        report_sha256: string;
-        report_json: string;
-      }, [string, string]>(`
-        SELECT report_sha256, report_json
-        FROM verification_study_reports
-        WHERE study_id = ? AND report_version = ?
-      `).get(input.studyId, input.reportVersion);
-      if (!existing || existing.report_sha256 !== reportSha256 || existing.report_json !== reportJson) {
-        throw new Error('Study report version is already archived with different evidence.');
+    return this.database.transaction(() => {
+      const report = this.buildVerificationStudyReportInternal(input.studyId, input.asOf);
+      const reportJson = JSON.stringify(report);
+      const reportSha256 = createHash('sha256').update(reportJson).digest('hex');
+      const result = this.database.query(`
+        INSERT OR IGNORE INTO verification_study_reports (
+          study_id, report_version, generated_at, eligible_for_publication,
+          report_sha256, report_json
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        input.studyId,
+        input.reportVersion,
+        report.generatedAt,
+        report.eligibleForPublication ? 1 : 0,
+        reportSha256,
+        reportJson,
+      );
+      if (result.changes === 0) {
+        const existing = this.database.query<{
+          report_sha256: string;
+          report_json: string;
+        }, [string, string]>(`
+          SELECT report_sha256, report_json
+          FROM verification_study_reports
+          WHERE study_id = ? AND report_version = ?
+        `).get(input.studyId, input.reportVersion);
+        if (!existing || existing.report_sha256 !== reportSha256 || existing.report_json !== reportJson) {
+          throw new Error('Study report version is already archived with different evidence.');
+        }
       }
-    }
-    return { reportVersion: input.reportVersion, reportSha256, inserted: result.changes === 1, report };
+      return { reportVersion: input.reportVersion, reportSha256, inserted: result.changes === 1, report };
+    }).immediate();
   }
 
   listVerificationStudyReports(studyId: string) {

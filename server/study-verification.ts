@@ -66,7 +66,8 @@ function findNearestObservation(
   const start = lowerBound(observations, lowerTimestamp);
   const end = lowerBound(observations, upperTimestamp);
   if (start >= end) return undefined;
-  const rightIndex = lowerBound(observations, midpoint);
+  const clampedMidpoint = Math.min(Math.max(midpoint, lowerTimestamp), upperTimestamp);
+  const rightIndex = lowerBound(observations, clampedMidpoint);
   const candidates: TimedObservation[] = [];
   if (rightIndex >= start && rightIndex < end) candidates.push(observations[rightIndex]!);
   const leftIndex = Math.min(rightIndex, end) - 1;
@@ -90,6 +91,7 @@ export function computeVerificationStudyReport(input: {
   runs: StudyVerificationRun[];
   observations: StudyVerificationObservation[];
   asOf: Date;
+  reportPolicyPreregistered?: boolean;
 }) {
   const asOf = input.asOf.getTime();
   const startsAt = new Date(input.definition.startsAt).getTime();
@@ -178,13 +180,13 @@ export function computeVerificationStudyReport(input: {
     for (const horizonMinutes of input.definition.horizonsMinutes) {
       const interval = nowcast.intervals.find((candidate) => candidate.leadStartMinutes === horizonMinutes);
       if (!interval || interval.status !== 'valid' || interval.probability === null) continue;
-      const accumulator = horizonAccumulators.get(horizonMinutes)!;
-      accumulator.forecastCount += 1;
       const intervalStart = sourceDataTime + interval.leadStartMinutes * 60_000;
       const intervalEnd = sourceDataTime + interval.leadEndMinutes * 60_000;
       const lowerBound = Math.max(intervalStart, issuedAt, startsAt);
       const upperBound = Math.min(intervalEnd, evaluationEnd, endsAt);
       if (lowerBound >= upperBound) continue;
+      const accumulator = horizonAccumulators.get(horizonMinutes)!;
+      accumulator.forecastCount += 1;
       const midpoint = (intervalStart + intervalEnd) / 2;
       const observation = findNearestObservation(
         observationsByTarget.get(run.targetId) ?? [],
@@ -225,6 +227,7 @@ export function computeVerificationStudyReport(input: {
     };
   });
   const gateFailures: string[] = [];
+  if (input.reportPolicyPreregistered === false) gateFailures.push('report_policy_not_preregistered');
   if (asOf < endsAt) gateFailures.push('study_in_progress');
   if (issuanceCompleteness === null || issuanceCompleteness < input.definition.minimumIssuanceCompleteness) {
     gateFailures.push('issuance_completeness_below_threshold');
@@ -260,6 +263,7 @@ export function computeVerificationStudyReport(input: {
     minimumObservationCountPerHorizon: input.definition.minimumObservationCountPerHorizon,
     observationSamplingPolicy: input.definition.observationSamplingPolicy,
     validTimePolicy: input.definition.validTimePolicy,
+    reportPolicyPreregistered: input.reportPolicyPreregistered ?? true,
     primaryMetric: input.definition.primaryMetric,
     claimScope: 'own-model point rain-occurrence skill only; no competitor superiority claim' as const,
     eligibleForPublication: gateFailures.length === 0,
