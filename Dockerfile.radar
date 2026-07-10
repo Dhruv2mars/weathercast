@@ -1,0 +1,18 @@
+FROM python:3.13-slim-trixie AS builder
+
+COPY --from=ghcr.io/astral-sh/uv:0.11.28 /uv /bin/uv
+WORKDIR /app
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+
+COPY radar/pyproject.toml radar/uv.lock ./
+RUN uv sync --locked --no-dev
+
+FROM python:3.13-slim-trixie
+
+RUN useradd --create-home --uid 10001 radar
+WORKDIR /app
+COPY --from=builder /app/.venv /app/.venv
+COPY radar/*.py ./
+
+USER radar
+ENTRYPOINT ["/app/.venv/bin/python", "/app/nowcast_grib.py"]

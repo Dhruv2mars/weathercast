@@ -5,3 +5,5 @@ android
 dist
 ios
 node_modules
+radar/.venv
+radar/__pycache__
