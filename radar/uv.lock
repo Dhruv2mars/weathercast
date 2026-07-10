@@ -206,12 +206,14 @@ source = { virtual = "." }
 dependencies = [
     { name = "eccodes" },
     { name = "eccodeslib" },
+    { name = "numpy" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "eccodes", specifier = ">=2.47.0,<3" },
     { name = "eccodeslib", specifier = "==2.47.3.22" },
+    { name = "numpy", specifier = ">=2.3,<3" },
 ]
 
 [package.metadata.requires-dev]

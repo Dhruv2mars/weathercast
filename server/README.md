@@ -79,4 +79,24 @@ The job exits non-zero if the newest frame is more than ten minutes old. The str
 bun run radar:sample frame.grib2.gz --points points.json
 ```
 
-`points.json` is a non-empty array of `{ "id", "latitude", "longitude" }` objects. The output unit is `mm/h`. Official MRMS sentinel `-1` is returned as `missing`, and `-3` as `no_coverage`; neither is allowed to become a zero-rain observation. Raw radar ingestion and point decoding do not yet make this a motion nowcast, so Precision coverage remains gated.
+`points.json` is a non-empty array of `{ "id", "latitude", "longitude" }` objects. The output unit is `mm/h`. Official MRMS sentinel `-1` is returned as `missing`, and `-3` as `no_coverage`; neither is allowed to become a zero-rain observation. Raw ingestion and point decoding alone do not make a motion nowcast; the shadow worker below adds that baseline while Precision remains gated.
+
+Create and archive a deterministic shadow motion ensemble at an exact CONUS coordinate after at least three fresh frames have been ingested:
+
+```bash
+DATABASE_PATH=.data/weathercast.sqlite \
+MRMS_NOWCAST_FRAME_COUNT=4 \
+MRMS_NOWCAST_MEMBERS=48 \
+bun run api:issue-radar-nowcast 34.6441 -86.7862
+```
+
+The Bun boundary revalidates the Python output, coordinate, newest source time, interval semantics, and every archived source SHA-256 before saving it. Runs and their relational frame links are append-only. They remain `shadow` and `uncalibrated` and are never served as Precision forecasts.
+
+Score eligible run intervals against later independent verified point observations:
+
+```bash
+DATABASE_PATH=.data/weathercast.sqlite \
+bun run api:verify-radar 2026-07-10T18:00:00.000Z radar-brier-v1
+```
+
+Scores aggregate all matching point observations per run and horizon, exclude provisional/rejected observations, and are immutable per verification version. Observations timestamped before the forecast was issued are excluded even when they follow the newest source frame, preventing retrospective runs from leaking into reported skill. A live pipeline match or a small sample is not an accuracy claim; promotion requires a pre-registered held-out study across seasons, regimes, regions, and dry/wet base rates.

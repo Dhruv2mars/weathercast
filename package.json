@@ -50,8 +50,11 @@
     "api:ingest-metar": "bun run server/jobs/ingest-metar.ts",
     "api:ingest-mrms": "bun run server/jobs/ingest-mrms.ts",
     "api:issue-verification-points": "bun run server/jobs/issue-verification-points.ts",
+    "api:issue-radar-nowcast": "bun run server/jobs/issue-radar-nowcast.ts",
     "api:verify": "bun run server/jobs/verify.ts",
+    "api:verify-radar": "bun run server/jobs/verify-radar.ts",
     "radar:check": "uv run --project radar python -m unittest discover -s radar -p 'test_*.py'",
+    "radar:nowcast": "uv run --project radar python radar/nowcast_grib.py",
     "radar:sample": "uv run --project radar python radar/sample_grib.py",
     "start": "expo start",
     "android": "expo run:android",
@@ -63,5 +66,8 @@
     "check": "bun run lint && bun run typecheck && bun test && bun run radar:check",
     "export": "expo export --platform all"
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "uuid": "11.1.1"
+  }
 }

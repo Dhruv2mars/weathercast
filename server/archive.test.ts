@@ -112,4 +112,54 @@ describe('ForecastArchive', () => {
       .toThrow('source assets are immutable');
     database.close();
   });
+
+  test('archives derived radar runs with immutable frame provenance', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'weathercast-radar-run-'));
+    directories.push(directory);
+    const path = join(directory, 'archive.sqlite');
+    const archive = new ForecastArchive(path);
+    const frameIds = Array.from({ length: 3 }, (_, index) => {
+      const asset = archive.saveSourceAsset({
+        provider: 'noaa-mrms-nodd',
+        upstreamKey: `frame-${index}`,
+        retrievedAt: '2026-07-10T15:40:00.000Z',
+        mediaType: 'application/gzip',
+        bytes: new Uint8Array([index]),
+      });
+      return archive.saveRadarFrame({
+        domain: 'CONUS',
+        product: 'PrecipRate_00.00',
+        observedAt: new Date(Date.parse('2026-07-10T15:30:00.000Z') + index * 120_000).toISOString(),
+        retrievedAt: '2026-07-10T15:40:00.000Z',
+        objectKey: `frame-${index}`,
+        sourceAssetId: asset.id,
+      });
+    });
+    const input = {
+      issuedAt: '2026-07-10T15:40:00.000Z',
+      sourceDataTime: '2026-07-10T15:34:00.000Z',
+      latitude: 35.005,
+      longitude: -87.115,
+      domain: 'CONUS',
+      product: 'PrecipRate_00.00',
+      algorithmVersion: 'translation-ensemble-v1',
+      inputFrameIds: frameIds,
+      response: { schemaVersion: 1 },
+    };
+    const saved = archive.saveRadarNowcastRun(input);
+    expect(saved.inserted).toBe(true);
+    expect(archive.saveRadarNowcastRun({ ...input, issuedAt: '2026-07-10T15:41:00.000Z' }))
+      .toEqual({ ...saved, inserted: false });
+    expect(() => archive.saveRadarNowcastRun({ ...input, response: { schemaVersion: 2 } }))
+      .toThrow('not reproducible');
+    expect(archive.listRadarNowcastRuns()).toEqual([expect.objectContaining({ id: saved.id, input_count: 3 })]);
+    archive.close();
+
+    const database = new Database(path);
+    expect(() => database.query('UPDATE radar_nowcast_runs SET algorithm_version = ? WHERE id = ?')
+      .run('mutated', saved.id)).toThrow('radar nowcast runs are immutable');
+    expect(() => database.query('DELETE FROM radar_nowcast_inputs WHERE run_id = ?').run(saved.id))
+      .toThrow('radar nowcast inputs are immutable');
+    database.close();
+  });
 });
