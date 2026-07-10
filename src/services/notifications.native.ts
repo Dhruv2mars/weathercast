@@ -1,0 +1,67 @@
+import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { Platform } from 'react-native';
+
+import type { AlertPlan } from '@/domain/alerts';
+
+const ALERT_ID_KEY = 'weathercast.alert-id.v1';
+const CHANNEL_ID = 'rain-alerts';
+
+function isExpoGo() {
+  return Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+}
+
+async function getNotifications() {
+  return import('expo-notifications');
+}
+
+export async function configureNotifications() {
+  // Expo Go intentionally excludes Android notification support. Development
+  // and production builds include the native module configured in app.json.
+  if (isExpoGo()) return;
+  const Notifications = await getNotifications();
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
+      name: 'Rain alerts',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 160],
+      sound: 'default',
+    });
+  }
+}
+
+export async function requestNotificationPermission() {
+  if (isExpoGo()) return false;
+  const Notifications = await getNotifications();
+  const existing = await Notifications.getPermissionsAsync();
+  if (existing.granted) return true;
+  const requested = await Notifications.requestPermissionsAsync();
+  return requested.granted;
+}
+
+export async function syncScheduledAlert(plan: AlertPlan | null) {
+  if (isExpoGo()) return;
+  const Notifications = await getNotifications();
+  const previousId = localStorage.getItem(ALERT_ID_KEY);
+  if (previousId) {
+    await Notifications.cancelScheduledNotificationAsync(previousId).catch(() => undefined);
+    localStorage.removeItem(ALERT_ID_KEY);
+  }
+  if (!plan) return;
+  const id = await Notifications.scheduleNotificationAsync({
+    content: { title: plan.title, body: plan.body, data: { route: '/' }, sound: 'default' },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: plan.triggerAt,
+      channelId: Platform.OS === 'android' ? CHANNEL_ID : undefined,
+    },
+  });
+  localStorage.setItem(ALERT_ID_KEY, id);
+}
