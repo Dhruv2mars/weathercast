@@ -9,6 +9,7 @@ import json
 import math
 import sys
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,21 @@ from motion_nowcast import Frame, MrmsMotionError, point_nowcast
 from sample_grib import MrmsDecodeError, decode_gzip, observed_at, validate_metadata
 
 TILE_HALF_SIZE = 256
+
+
+@dataclass(frozen=True)
+class Target:
+    id: str
+    latitude: float
+    longitude: float
+
+
+@dataclass(frozen=True)
+class ExtractedFrame:
+    observedAt: datetime
+    checksum: str
+    tiles: list[np.ndarray]
+    coverageFractions: list[float]
 
 
 def grid_index(latitude: float, longitude: float, metadata: dict[str, int | float]) -> tuple[int, int]:
@@ -57,7 +73,22 @@ def normalize_tile(tile: np.ndarray) -> np.ndarray:
     return normalized
 
 
-def extract_frame(path: Path, latitude: float, longitude: float, half_size: int) -> tuple[Frame, str, float]:
+def validate_targets(targets: list[Target]) -> None:
+    if not targets or len(targets) > 20:
+        raise MrmsDecodeError("From one through twenty batch targets are required.")
+    if len({target.id for target in targets}) != len(targets):
+        raise MrmsDecodeError("Batch target IDs must be unique.")
+    for target in targets:
+        if not target.id or len(target.id) > 128:
+            raise MrmsDecodeError("Batch target IDs must contain from one through 128 characters.")
+        if not math.isfinite(target.latitude) or not math.isfinite(target.longitude):
+            raise MrmsDecodeError(f"Target {target.id!r} has non-finite coordinates.")
+
+
+def extract_frame_tiles(
+    path: Path, targets: list[Target], half_size: int
+) -> ExtractedFrame:
+    validate_targets(targets)
     checksum = hashlib.sha256(path.read_bytes()).hexdigest()
     with tempfile.TemporaryDirectory(prefix="weathercast-motion-") as temporary:
         decoded = Path(temporary) / "frame.grib2"
@@ -84,29 +115,116 @@ def extract_frame(path: Path, latitude: float, longitude: float, half_size: int)
                 )
                 metadata = {key: eccodes.codes_get(handle, key) for key in keys}
                 validate_metadata(metadata)
-                row, column = grid_index(latitude, longitude, metadata)
-                if (
-                    row - half_size < 0
-                    or column - half_size < 0
-                    or row + half_size >= int(metadata["Nj"])
-                    or column + half_size >= int(metadata["Ni"])
-                ):
-                    raise MrmsDecodeError("Target lacks the full radar context tile required for 120 minutes.")
+                indices = [grid_index(target.latitude, target.longitude, metadata) for target in targets]
+                for target, (row, column) in zip(targets, indices, strict=True):
+                    if (
+                        row - half_size < 0
+                        or column - half_size < 0
+                        or row + half_size >= int(metadata["Nj"])
+                        or column + half_size >= int(metadata["Ni"])
+                    ):
+                        raise MrmsDecodeError(
+                            f"Target {target.id!r} lacks the full radar context tile required for 120 minutes."
+                        )
                 values = eccodes.codes_get_values(handle).reshape(int(metadata["Nj"]), int(metadata["Ni"]))
-                tile = normalize_tile(
-                    values[
-                        row - half_size : row + half_size + 1,
-                        column - half_size : column + half_size + 1,
-                    ]
-                )
-                coverage = float(np.mean(np.isfinite(tile)))
+                tiles = [
+                    normalize_tile(
+                        values[
+                            row - half_size : row + half_size + 1,
+                            column - half_size : column + half_size + 1,
+                        ]
+                    )
+                    for row, column in indices
+                ]
                 timestamp = observed_at(
                     int(eccodes.codes_get(handle, "dataDate")),
                     int(eccodes.codes_get(handle, "dataTime")),
                 )
-                return Frame(datetime.fromisoformat(timestamp.replace("Z", "+00:00")), tile), checksum, coverage
+                return ExtractedFrame(
+                    observedAt=datetime.fromisoformat(timestamp.replace("Z", "+00:00")),
+                    checksum=checksum,
+                    tiles=tiles,
+                    coverageFractions=[float(np.mean(np.isfinite(tile))) for tile in tiles],
+                )
             finally:
                 eccodes.codes_release(handle)
+
+
+def extract_frame(path: Path, latitude: float, longitude: float, half_size: int) -> tuple[Frame, str, float]:
+    extracted = extract_frame_tiles(path, [Target("single", latitude, longitude)], half_size)
+    return Frame(extracted.observedAt, extracted.tiles[0]), extracted.checksum, extracted.coverageFractions[0]
+
+
+def build_extracted_nowcasts(
+    extracted: list[ExtractedFrame],
+    targets: list[Target],
+    members: int,
+    half_size: int,
+) -> list[dict[str, Any]]:
+    validate_targets(targets)
+    if len(extracted) < 3 or len(extracted) > 12:
+        raise MrmsDecodeError("From three through twelve extracted MRMS frames are required.")
+    expected_shape = (half_size * 2 + 1, half_size * 2 + 1)
+    for frame in extracted:
+        if len(frame.tiles) != len(targets) or len(frame.coverageFractions) != len(targets):
+            raise MrmsDecodeError("Every extracted frame must have one tile per batch target.")
+        if any(tile.shape != expected_shape for tile in frame.tiles):
+            raise MrmsDecodeError("Every extracted radar tile must use the configured context size.")
+    ordered = sorted(extracted, key=lambda item: item.observedAt)
+    if len({item.observedAt for item in ordered}) != len(ordered):
+        raise MrmsDecodeError("MRMS frame timestamps must be unique.")
+    checksums = [item.checksum for item in ordered]
+    results: list[dict[str, Any]] = []
+    for target_index, target in enumerate(targets):
+        seed_material = json.dumps(
+            {
+                "checksums": checksums,
+                "latitude": round(target.latitude, 4),
+                "longitude": round(target.longitude, 4),
+            },
+            separators=(",", ":"),
+        )
+        seed = int(hashlib.sha256(seed_material.encode()).hexdigest()[:16], 16)
+        result = point_nowcast(
+            [Frame(item.observedAt, item.tiles[target_index]) for item in ordered],
+            center=(half_size, half_size),
+            seed=seed,
+            members=members,
+        )
+        result.update(
+            {
+                "targetId": target.id,
+                "location": {
+                    "latitude": round(target.latitude, 4),
+                    "longitude": round(target.longitude, 4),
+                },
+                "inputSha256": checksums,
+                "coverage": {
+                    "tier": "shadow",
+                    "minimumTileFraction": round(
+                        min(item.coverageFractions[target_index] for item in ordered), 6
+                    ),
+                    "spatialResolutionKm": 1,
+                    "reason": "Uncalibrated MRMS translation ensemble; not eligible for public Precision coverage.",
+                },
+            }
+        )
+        results.append(result)
+    return results
+
+
+def build_grib_nowcasts(
+    paths: list[Path], targets: list[Target], members: int, half_size: int = TILE_HALF_SIZE
+) -> list[dict[str, Any]]:
+    if len(paths) < 3 or len(paths) > 12:
+        raise MrmsDecodeError("From three through twelve MRMS frames are required.")
+    validate_targets(targets)
+    return build_extracted_nowcasts(
+        [extract_frame_tiles(path, targets, half_size) for path in paths],
+        targets,
+        members,
+        half_size,
+    )
 
 
 def build_grib_nowcast(
@@ -116,36 +234,13 @@ def build_grib_nowcast(
     members: int,
     half_size: int = TILE_HALF_SIZE,
 ) -> dict[str, Any]:
-    if len(paths) < 3 or len(paths) > 12:
-        raise MrmsDecodeError("From three through twelve MRMS frames are required.")
-    extracted = [extract_frame(path, latitude, longitude, half_size) for path in paths]
-    ordered = sorted(extracted, key=lambda item: item[0].observedAt)
-    if len({item[0].observedAt for item in ordered}) != len(ordered):
-        raise MrmsDecodeError("MRMS frame timestamps must be unique.")
-    checksums = [item[1] for item in ordered]
-    seed_material = json.dumps(
-        {"checksums": checksums, "latitude": round(latitude, 4), "longitude": round(longitude, 4)},
-        separators=(",", ":"),
-    )
-    seed = int(hashlib.sha256(seed_material.encode()).hexdigest()[:16], 16)
-    result = point_nowcast(
-        [item[0] for item in ordered],
-        center=(half_size, half_size),
-        seed=seed,
-        members=members,
-    )
-    result.update(
-        {
-            "location": {"latitude": round(latitude, 4), "longitude": round(longitude, 4)},
-            "inputSha256": checksums,
-            "coverage": {
-                "tier": "shadow",
-                "minimumTileFraction": round(min(item[2] for item in ordered), 6),
-                "spatialResolutionKm": 1,
-                "reason": "Uncalibrated MRMS translation ensemble; not eligible for public Precision coverage.",
-            },
-        }
-    )
+    result = build_grib_nowcasts(
+        paths,
+        [Target("single", latitude, longitude)],
+        members,
+        half_size,
+    )[0]
+    result.pop("targetId")
     return result
 
 

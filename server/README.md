@@ -100,3 +100,30 @@ bun run api:verify-radar 2026-07-10T18:00:00.000Z radar-brier-v1
 ```
 
 Scores aggregate all matching point observations per run and horizon, exclude provisional/rejected observations, and are immutable per verification version. Observations timestamped before the forecast was issued are excluded even when they follow the newest source frame, preventing retrospective runs from leaking into reported skill. A live pipeline match or a small sample is not an accuracy claim; promotion requires a pre-registered held-out study across seasons, regimes, regions, and dry/wet base rates.
+
+## Prospective radar verification study
+
+The prospective runner freezes the study window, exact ordered station cohort and coordinates, algorithm version, source product, 15-minute issuance cadence, scored horizons, primary metric, exclusion policy, and per-horizon sample gate before the first eligible forecast. Start and end times must align to the cadence. The supplied CONUS definition is an example that must be reviewed and registered before its start time:
+
+```bash
+DATABASE_PATH=.data/weathercast.sqlite \
+METAR_STATION_IDS=KATL,KBOS,KCLT,KDEN,KDFW,KHSV,KIAD,KIAH,KJFK,KLAX,KMCI,KMIA,KMSP,KMSY,KORD,KPHX,KSEA,KSFO,KSLC,KSTL \
+WEATHERCAST_USER_AGENT='Weathercast/1.0 contact=ops@weathercast.app' \
+bun run api:ingest-metar
+
+DATABASE_PATH=.data/weathercast.sqlite \
+bun run api:register-study server/fixtures/study.example.json
+```
+
+Keep MRMS ingestion running at its source cadence. Invoke the study runner once in every registered 15-minute window:
+
+```bash
+DATABASE_PATH=.data/weathercast.sqlite \
+MRMS_NOWCAST_FRAME_COUNT=4 \
+MRMS_NOWCAST_MEMBERS=48 \
+bun run api:issue-radar-study mrms-metar-conus-2026q3-v1
+```
+
+The worker decodes each compressed grid once for the complete cohort, validates the exact target order and source checksums at the Bun boundary, then archives every run and study link in one transaction. It rejects missing targets, changed locations, mixed source times, stale or gapped frames, late completion, and attempts outside the registered window. Repeating a completed slot is idempotent. Study definitions, coordinates, runs, inputs, and links are protected by append-only database triggers.
+
+Registration and issuance establish prospective provenance; they do not by themselves establish accuracy. A public result remains prohibited until the study has ended, the pre-registered sample gate is met at every reported horizon, independent verified observations have been scored, and calibration/reliability results are reported alongside Brier score and base rate.

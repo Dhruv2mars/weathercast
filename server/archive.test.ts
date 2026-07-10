@@ -152,6 +152,21 @@ describe('ForecastArchive', () => {
       .toEqual({ ...saved, inserted: false });
     expect(() => archive.saveRadarNowcastRun({ ...input, response: { schemaVersion: 2 } }))
       .toThrow('not reproducible');
+    expect(() => archive.saveRadarNowcastRun({
+      ...input,
+      latitude: 36,
+      inputFrameIds: frameIds.toReversed(),
+    })).toThrow('chronological');
+    expect(() => archive.saveRadarNowcastRun({
+      ...input,
+      latitude: 36,
+      sourceDataTime: '2026-07-10T15:33:00.000Z',
+    })).toThrow('newest input frame');
+    expect(() => archive.saveRadarNowcastRun({
+      ...input,
+      latitude: 36,
+      issuedAt: '2026-07-10T15:45:00.001Z',
+    })).toThrow('fresh radar inputs');
     expect(archive.listRadarNowcastRuns()).toEqual([expect.objectContaining({ id: saved.id, input_count: 3 })]);
     archive.close();
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { validateRadarDecoderOutput } from './radar-nowcast-runner';
+import { validateRadarBatchDecoderOutput, validateRadarDecoderOutput } from './radar-nowcast-runner';
 
 const checksums = ['a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64), 'd'.repeat(64)];
 
@@ -75,5 +75,31 @@ describe('radar decoder boundary', () => {
       output: output({ sourceDataTime: '2026-07-10T15:36:00Z' }),
       ...expected,
     })).toThrow();
+  });
+
+  test('validates a complete batch in pre-registered target order', () => {
+    const first = JSON.parse(output({ targetId: 'KHSV' }));
+    const second = JSON.parse(output({
+      targetId: 'KJFK',
+      location: { latitude: 40.6392, longitude: -73.7639 },
+    }));
+    const batch = JSON.stringify({ schemaVersion: 1, runs: [first, second] });
+    const targets = [
+      { id: 'KHSV', latitude: 35.005, longitude: -87.115 },
+      { id: 'KJFK', latitude: 40.6392, longitude: -73.7639 },
+    ];
+    expect(validateRadarBatchDecoderOutput({
+      output: batch,
+      targets,
+      sourceDataTime: expected.sourceDataTime,
+      inputSha256: checksums,
+    }).map((item) => item.targetId)).toEqual(['KHSV', 'KJFK']);
+
+    expect(() => validateRadarBatchDecoderOutput({
+      output: JSON.stringify({ schemaVersion: 1, runs: [second, first] }),
+      targets,
+      sourceDataTime: expected.sourceDataTime,
+      inputSha256: checksums,
+    })).toThrow('target order');
   });
 });

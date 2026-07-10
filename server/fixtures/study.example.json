@@ -1,0 +1,20 @@
+{
+  "id": "mrms-metar-conus-2026q3-v1",
+  "title": "Prospective CONUS MRMS rain occurrence study",
+  "startsAt": "2026-07-11T00:00:00.000Z",
+  "endsAt": "2026-10-01T00:00:00.000Z",
+  "algorithmVersion": "translation-ensemble-v1",
+  "domain": "CONUS",
+  "product": "PrecipRate_00.00",
+  "stationIds": [
+    "KATL", "KBOS", "KCLT", "KDEN", "KDFW",
+    "KHSV", "KIAD", "KIAH", "KJFK", "KLAX",
+    "KMCI", "KMIA", "KMSP", "KMSY", "KORD",
+    "KPHX", "KSEA", "KSFO", "KSLC", "KSTL"
+  ],
+  "issueCadenceMinutes": 15,
+  "horizonsMinutes": [0, 15, 30, 45, 60, 75, 90, 105],
+  "primaryMetric": "brier_rain_occurrence_point",
+  "minimumObservationCountPerHorizon": 10000,
+  "exclusionPolicy": "verified prospective observations only; no post-registration cohort changes"
+}
