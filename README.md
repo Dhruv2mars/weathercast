@@ -39,9 +39,10 @@ Copy `.env.example` to `.env.local` when using owned services.
 | --- | --- |
 | `EXPO_PUBLIC_NOWCAST_API_URL` | Base URL for the production nowcast API |
 | `EXPO_PUBLIC_RADAR_MANIFEST_URL` | Licensed radar-frame manifest URL |
+| `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` | Android-restricted Google Maps SDK key |
 | `EXPO_PUBLIC_OPEN_METEO_HOST` | Evaluation fallback host override |
 
-If no nowcast API is configured, the app uses Open-Meteo's 15-minute numerical forecast as a **Standard** coverage evaluation fallback. That path is not radar nowcasting and its free/open-access terms are not a substitute for a commercial data agreement. Production distribution must configure an owned backend and licensed providers.
+If no nowcast API is configured, the app uses Open-Meteo's 15-minute numerical forecast as a **Standard** coverage evaluation fallback. That path is not radar nowcasting and its free/open-access terms are not a substitute for a commercial data agreement. Production distribution must configure an owned backend and licensed providers. Android safely shows a no-map state when no Maps key is configured instead of initializing the native Google Maps SDK.
 
 ## Quality gates
 

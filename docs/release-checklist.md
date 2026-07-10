@@ -14,6 +14,7 @@
 - [ ] Owned `/v1/nowcast` backend configured; evaluation fallback disabled
 - [ ] Commercial rights and redistribution terms signed for every regional source
 - [ ] Radar manifest/tile CDN configured for Precision regions
+- [ ] Android-restricted Google Maps SDK key configured for the release signing certificate
 - [ ] Forecast archive, observation truth set, and verification jobs operating
 - [ ] Confidence labels validated by reliability curves
 - [ ] Accuracy claims include metric, horizon, region, dates, and sample size
