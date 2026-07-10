@@ -127,3 +127,19 @@ bun run api:issue-radar-study mrms-metar-conus-2026q3-v1
 The worker decodes each compressed grid once for the complete cohort, validates the exact target order and source checksums at the Bun boundary, then archives every run and study link in one transaction. It rejects missing targets, changed locations, mixed source times, stale or gapped frames, late completion, and attempts outside the registered window. Repeating a completed slot is idempotent. Study definitions, coordinates, runs, inputs, and links are protected by append-only database triggers.
 
 Registration and issuance establish prospective provenance; they do not by themselves establish accuracy. A public result remains prohibited until the study has ended, the pre-registered sample gate is met at every reported horizon, independent verified observations have been scored, and calibration/reliability results are reported alongside Brier score and base rate.
+
+Create a versioned evidence report at any cutoff:
+
+```bash
+DATABASE_PATH=.data/weathercast.sqlite \
+bun run api:report-study \
+  mrms-metar-conus-2026q3-v1 \
+  2026-08-08T00:00:00.000Z \
+  preliminary-week-1
+```
+
+Each report uses only study-linked runs and verified `aviation-weather-metar` observations whose `icaoId` belongs to the frozen cohort. For each run and registered horizon it selects at most one observation: the report nearest the interval midpoint, with an earlier timestamp winning a tie. Observations before issuance and at or after the registered study end are excluded. Provisional, rejected, wrong-source, and off-cohort rows never enter the calculation.
+
+Issuance completeness counts only cadence slots containing the entire target cohort. Partial slots are disclosed but cannot contribute forecasts, observations, or completeness. The report includes ten fixed reliability bins, forecast and observation counts, missing-truth counts, mean probability, observed rain rate, and point-occurrence Brier score for every registered horizon. Reports are content-hashed and append-only by version; attempting to reuse a version after evidence changes fails.
+
+`eligibleForPublication` remains false until the study has ended, at least 95% of complete cohort issues exist, and every horizon reaches its pre-registered observation count. Eligibility covers only the model's own point rain-occurrence evidence. It is not a competitor-superiority result and does not promote the uncalibrated shadow model to Precision.
