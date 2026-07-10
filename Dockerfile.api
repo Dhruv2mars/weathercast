@@ -1,0 +1,18 @@
+FROM oven/bun:1.3.13-slim
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --production
+
+COPY tsconfig.json ./
+COPY server ./server
+COPY src/domain ./src/domain
+COPY src/types ./src/types
+
+RUN mkdir -p /data && chown bun:bun /data
+USER bun
+EXPOSE 8787
+
+CMD ["bun", "run", "server/index.ts"]
