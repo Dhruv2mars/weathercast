@@ -18,9 +18,11 @@ Weathercast's accuracy comes from owned calibration and verification, not from r
 - Germany: [DWD open radar](https://opendata.dwd.de/weather/radar/) under the [DWD legal notice](https://www.dwd.de/EN/service/legal_notice/legal_notice_node.html)
 - United Kingdom: [Met Office Weather DataHub](https://datahub.metoffice.gov.uk/support/faqs)
 - Global numerical guidance: [ECMWF open real-time catalogue](https://www.ecmwf.int/en/about/media-centre/news/2025/ecmwf-makes-its-entire-real-time-catalogue-open-all)
-- Surface observations: [Aviation Weather Center Data API](https://aviationweather.gov/data/api/)
+- Surface observations: [Aviation Weather Center Data API](https://aviationweather.gov/data/api/). Weathercast ingests worldwide METAR JSON through a server-side adapter, content-addresses the raw bytes, and uses the reports only for coarse rain-occurrence verification. The documented API limit is 100 requests/minute, callers should use a custom User-Agent, and bulk queries should prefer the routinely updated cache files.
 
 Coverage and redistribution rights vary by product. Legal review, written commercial rights, attribution, retention rules, service-level objectives, and outage fallbacks are release gates for each region.
+
+METAR is not hyperlocal truth: stations are sparse, normal reporting is commonly hourly, and present-weather reports cannot validate a ±5-minute onset claim. Precision calibration still requires radar and denser independent gauges with known measurement periods and quality flags.
 
 ## Explicit exclusions
 
