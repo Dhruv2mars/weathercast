@@ -82,6 +82,8 @@ Read [architecture](docs/architecture.md), [API contract](docs/nowcast-api.md), 
 
 “Most accurate” is a measured result, not UI copy. Every issued forecast must be archived and verified against independent observations. Public comparisons require a defined region, period, horizon, sample size, and metric. The client therefore shows no fabricated benchmark or uncalibrated numeric confidence score.
 
+The backend now preregisters held-out radar studies and creates immutable per-horizon reliability reports. A report cannot become publication-eligible before the fixed study window ends, below 95% complete cohort issuance, or below any registered sample gate. This evidence scope evaluates Weathercast itself; a claim that Weathercast beats another provider still requires a separately lawful, preregistered paired comparison.
+
 ## License
 
 MIT. Weather data and map layers retain their own licenses and attribution requirements.

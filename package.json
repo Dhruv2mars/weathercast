@@ -53,6 +53,7 @@
     "api:issue-radar-nowcast": "bun run server/jobs/issue-radar-nowcast.ts",
     "api:issue-radar-study": "bun run server/jobs/issue-radar-study.ts",
     "api:register-study": "bun run server/jobs/register-study.ts",
+    "api:report-study": "bun run server/jobs/report-study.ts",
     "api:verify": "bun run server/jobs/verify.ts",
     "api:verify-radar": "bun run server/jobs/verify-radar.ts",
     "radar:check": "uv run --project radar python -m unittest discover -s radar -p 'test_*.py'",

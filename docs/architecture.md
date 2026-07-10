@@ -12,7 +12,9 @@ Expo Router provides native navigation. TanStack Query manages server state, ret
 
 The repository includes a Bun `/v1/nowcast` boundary. It validates and rate-limits requests, deduplicates simultaneous requests for a location cell, normalizes provider output, and archives the exact response before returning success. Development uses explicitly uncalibrated Open-Meteo evaluation guidance. Production refuses that adapter and requires a server-authenticated normalized upstream.
 
-The included SQLite archive is the single-instance tracer bullet. Global operation still requires Postgres/PostGIS, content-addressed raw-input object storage, licensed radar/satellite/station feeds, provider freshness alarms, a verification worker, distributed cache/rate limiting, and region-aware deployment. No Precision tier or superiority claim is permitted until those inputs and held-out calibration gates pass.
+The archive also freezes prospective radar-study definitions, coordinates, cadence slots, source-frame links, and versioned evidence reports. Reports score only full-cohort issues against one deterministic verified METAR observation per run and horizon. Publication eligibility requires the study to end, at least 95% complete issuance, and every registered sample gate. This evaluates Weathercast's own shadow model; it cannot promote Precision or establish superiority over another provider.
+
+The included SQLite archive is the single-instance tracer bullet. Global operation still requires Postgres/PostGIS, content-addressed raw-input object storage, licensed radar/satellite/station feeds, provider freshness alarms, a scalable verification worker, distributed cache/rate limiting, and region-aware deployment. No Precision tier or superiority claim is permitted until those inputs, an independent calibration holdout, and a lawful paired comparison pass their respective gates.
 
 ## Privacy
 
