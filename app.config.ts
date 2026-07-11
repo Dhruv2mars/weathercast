@@ -63,6 +63,7 @@ export default (): ExpoConfig => {
       bundleIdentifier: 'com.dhruv2mars.weathercast',
       supportsTablet: true,
       infoPlist: {
+        ITSAppUsesNonExemptEncryption: false,
         NSLocationWhenInUseUsageDescription: 'Weathercast uses your location while the app is open to calculate rain timing for where you are.',
       },
     },
