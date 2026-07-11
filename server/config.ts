@@ -7,6 +7,7 @@ const environmentSchema = z.object({
   NOWCAST_PROVIDER_MODE: z.enum(['open-meteo-evaluation', 'normalized-upstream']).default('open-meteo-evaluation'),
   OPEN_METEO_API_HOST: z.url().default('https://api.open-meteo.com'),
   NORMALIZED_UPSTREAM_URL: z.url().optional(),
+  NORMALIZED_UPSTREAM_HEALTH_URL: z.url().optional(),
   NORMALIZED_UPSTREAM_TOKEN: z.string().min(16).optional(),
   CORS_ORIGIN: z.string().min(1).default('*'),
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(120),
@@ -22,6 +23,8 @@ const environmentSchema = z.object({
   READINESS_RADAR_PRODUCT: z.enum(['PrecipRate_00.00']).default('PrecipRate_00.00'),
   READINESS_OBSERVATION_SOURCE: z.enum(['aviation-weather-metar'])
     .default('aviation-weather-metar'),
+  READINESS_UPSTREAM_TIMEOUT_MS: z.coerce.number().int().min(500).max(5000).default(2000),
+  READINESS_UPSTREAM_CACHE_SECONDS: z.coerce.number().int().min(1).max(60).default(15),
 });
 
 export type ApiConfig = z.infer<typeof environmentSchema>;
@@ -30,10 +33,11 @@ export function loadConfig(environment: Record<string, string | undefined> = pro
   const config = environmentSchema.parse(environment);
 
   if (config.NOWCAST_PROVIDER_MODE === 'normalized-upstream'
-      && (!config.NORMALIZED_UPSTREAM_URL || !config.NORMALIZED_UPSTREAM_TOKEN)) {
-    throw new Error('normalized-upstream requires NORMALIZED_UPSTREAM_URL and NORMALIZED_UPSTREAM_TOKEN.');
+      && (!config.NORMALIZED_UPSTREAM_URL
+        || !config.NORMALIZED_UPSTREAM_HEALTH_URL
+        || !config.NORMALIZED_UPSTREAM_TOKEN)) {
+    throw new Error('normalized-upstream requires forecast URL, health URL, and token.');
   }
-
   if (config.NODE_ENV === 'production') {
     if (config.NOWCAST_PROVIDER_MODE === 'open-meteo-evaluation') {
       throw new Error('Production cannot use the non-commercial Open-Meteo evaluation provider.');
@@ -50,6 +54,17 @@ export function loadConfig(environment: Record<string, string | undefined> = pro
     }
     if (upstream.hostname === 'api.open-meteo.com' || upstream.hostname.endsWith('.open-meteo.com')) {
       throw new Error('Production cannot route through the Open-Meteo open-access host.');
+    }
+    const health = new URL(config.NORMALIZED_UPSTREAM_HEALTH_URL!);
+    if (health.protocol !== 'https:') {
+      throw new Error('Production normalized upstream health URL must use HTTPS.');
+    }
+  }
+  if (config.NOWCAST_PROVIDER_MODE === 'normalized-upstream') {
+    const upstream = new URL(config.NORMALIZED_UPSTREAM_URL!);
+    const health = new URL(config.NORMALIZED_UPSTREAM_HEALTH_URL!);
+    if (health.origin !== upstream.origin) {
+      throw new Error('Normalized upstream forecast and health URLs must use the same origin.');
     }
   }
 

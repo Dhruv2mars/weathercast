@@ -28,6 +28,19 @@ function forecast(): NormalizedForecast {
 
 class FixtureProvider implements ForecastProvider {
   calls = 0;
+  healthCalls = 0;
+  healthy = true;
+  stallHealth = false;
+
+  async checkHealth(signal: AbortSignal): Promise<boolean> {
+    this.healthCalls += 1;
+    if (this.stallHealth) {
+      return new Promise((resolve) => {
+        signal.addEventListener('abort', () => resolve(false), { once: true });
+      });
+    }
+    return this.healthy;
+  }
 
   async fetch(): Promise<ProviderResult> {
     this.calls += 1;
@@ -153,6 +166,54 @@ describe('Weathercast API', () => {
     archive.close();
   });
 
+  test('gates normalized upstream readiness and caches the probe result', async () => {
+    const { archive, provider, handler } = setup({
+      NOWCAST_PROVIDER_MODE: 'normalized-upstream',
+      NORMALIZED_UPSTREAM_URL: 'https://weather.example/v1/point',
+      NORMALIZED_UPSTREAM_HEALTH_URL: 'https://weather.example/healthz',
+      NORMALIZED_UPSTREAM_TOKEN: '1234567890123456',
+      READINESS_UPSTREAM_CACHE_SECONDS: '15',
+    });
+    provider.healthy = false;
+    const first = await handler(new Request('http://api/readyz'));
+    const second = await handler(new Request('http://api/readyz'));
+    expect(first.status).toBe(503);
+    expect(await first.json()).toEqual({
+      status: 'not_ready',
+      checks: { archive: 'pass', upstream: 'fail' },
+    });
+    expect(second.status).toBe(503);
+    expect(provider.healthCalls).toBe(1);
+    archive.close();
+
+    const healthy = setup({
+      NOWCAST_PROVIDER_MODE: 'normalized-upstream',
+      NORMALIZED_UPSTREAM_URL: 'https://weather.example/v1/point',
+      NORMALIZED_UPSTREAM_HEALTH_URL: 'https://weather.example/healthz',
+      NORMALIZED_UPSTREAM_TOKEN: '1234567890123456',
+    });
+    const ready = await healthy.handler(new Request('http://api/readyz'));
+    expect(ready.status).toBe(200);
+    expect((await ready.json()).checks.upstream).toBe('pass');
+    healthy.archive.close();
+  });
+
+  test('bounds a hung upstream readiness probe', async () => {
+    const { archive, provider, handler } = setup({
+      NOWCAST_PROVIDER_MODE: 'normalized-upstream',
+      NORMALIZED_UPSTREAM_URL: 'https://weather.example/v1/point',
+      NORMALIZED_UPSTREAM_HEALTH_URL: 'https://weather.example/healthz',
+      NORMALIZED_UPSTREAM_TOKEN: '1234567890123456',
+      READINESS_UPSTREAM_TIMEOUT_MS: '500',
+    });
+    provider.stallHealth = true;
+    const startedAt = performance.now();
+    const response = await handler(new Request('http://api/readyz'));
+    expect(response.status).toBe(503);
+    expect(performance.now() - startedAt).toBeLessThan(1500);
+    archive.close();
+  });
+
   test('accepts coordinates in a POST body so production URLs do not expose location', async () => {
     const { archive, handler } = setup();
     const response = await handler(new Request('http://api/v1/nowcast', {
@@ -226,7 +287,10 @@ describe('Weathercast API', () => {
     archive.close();
 
     const failingArchive = new ForecastArchive(':memory:');
-    const failingProvider: ForecastProvider = { fetch: async () => { throw new Error('secret upstream detail'); } };
+    const failingProvider: ForecastProvider = {
+      checkHealth: async () => false,
+      fetch: async () => { throw new Error('secret upstream detail'); },
+    };
     const config = loadConfig({ NODE_ENV: 'test' });
     const failingHandler = createHandler({ config, archive: failingArchive, provider: failingProvider, now: () => now });
     const failed = await failingHandler(new Request(url));
