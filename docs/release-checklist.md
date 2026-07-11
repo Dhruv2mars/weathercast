@@ -17,7 +17,7 @@
 - [ ] Radar manifest/tile CDN configured for Precision regions
 - [ ] Android-restricted Google Maps SDK key configured for the release signing certificate
 - [ ] Forecast archive, observation truth set, and verification jobs operating
-- [ ] Prospective study definition registered before its start; cohort and timing unchanged
+- [ ] Prospective schema-v3 study registered before its start; cohort, timing, input-frame count, and ensemble size unchanged
 - [ ] Final study report reaches 95% complete-cohort issuance and every per-horizon sample gate
 - [ ] Confidence labels validated by reliability curves
 - [ ] Precision calibration is trained outside the evaluation cohort and passes an independent holdout

@@ -11,6 +11,8 @@ function definition() {
     algorithmVersion: 'translation-ensemble-v1',
     domain: 'CONUS',
     product: 'PrecipRate_00.00',
+    inputFrameCount: 4,
+    ensembleMembers: 24,
     stationIds: ['KHSV', 'KJFK', 'KSEA', 'KSFO'],
     issueCadenceMinutes: 15,
     horizonsMinutes: [0, 15, 30, 45, 60, 75, 90, 105],
@@ -26,6 +28,15 @@ function definition() {
 describe('prospective study definition', () => {
   test('accepts a fixed cohort, period, metric, horizons, and sample gate', () => {
     expect(studyDefinitionSchema.safeParse(definition()).success).toBe(true);
+  });
+
+  test('requires bounded runtime parameters in every new definition', () => {
+    const { inputFrameCount: _inputFrameCount, ...withoutFrames } = definition();
+    expect(studyDefinitionSchema.safeParse(withoutFrames).success).toBe(false);
+    const { ensembleMembers: _ensembleMembers, ...withoutMembers } = definition();
+    expect(studyDefinitionSchema.safeParse(withoutMembers).success).toBe(false);
+    expect(studyDefinitionSchema.safeParse({ ...definition(), inputFrameCount: 2 }).success).toBe(false);
+    expect(studyDefinitionSchema.safeParse({ ...definition(), ensembleMembers: 97 }).success).toBe(false);
   });
 
   test('rejects short studies, duplicate stations, and cherry-picked horizon order', () => {
@@ -61,6 +72,8 @@ describe('prospective study definition', () => {
   test('reads legacy studies diagnostically without pretending report rules were preregistered', () => {
     const legacy = definition();
     const {
+      inputFrameCount: _inputFrameCount,
+      ensembleMembers: _ensembleMembers,
       minimumIssuanceCompleteness: _minimumIssuanceCompleteness,
       observationSamplingPolicy: _observationSamplingPolicy,
       validTimePolicy: _validTimePolicy,
@@ -70,8 +83,27 @@ describe('prospective study definition', () => {
     expect(parsed).toEqual(expect.objectContaining({
       schemaVersion: 1,
       reportPolicyPreregistered: false,
-      definition: expect.objectContaining({ minimumIssuanceCompleteness: 0.95 }),
+      runtimeParametersPreregistered: false,
+      definition: expect.objectContaining({
+        minimumIssuanceCompleteness: 0.95,
+        inputFrameCount: 4,
+        ensembleMembers: 24,
+      }),
     }));
-    expect(parseStoredStudyDefinition({ schemaVersion: 2, ...definition() }).reportPolicyPreregistered).toBe(true);
+    const v2 = parseStoredStudyDefinition({
+      schemaVersion: 2,
+      ...legacyDefinition,
+      minimumIssuanceCompleteness: 0.95,
+      observationSamplingPolicy: definition().observationSamplingPolicy,
+      validTimePolicy: definition().validTimePolicy,
+    });
+    expect(v2).toEqual(expect.objectContaining({
+      reportPolicyPreregistered: true,
+      runtimeParametersPreregistered: false,
+    }));
+    expect(parseStoredStudyDefinition({ schemaVersion: 3, ...definition() })).toEqual(expect.objectContaining({
+      reportPolicyPreregistered: true,
+      runtimeParametersPreregistered: true,
+    }));
   });
 });

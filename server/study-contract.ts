@@ -17,6 +17,8 @@ export const studyDefinitionSchema = z.object({
   algorithmVersion: z.literal('translation-ensemble-v1'),
   domain: z.literal('CONUS'),
   product: z.literal('PrecipRate_00.00'),
+  inputFrameCount: z.number().int().min(3).max(12),
+  ensembleMembers: z.number().int().min(12).max(96),
   stationIds: z.array(stationId).min(1).max(20),
   issueCadenceMinutes: z.literal(15),
   horizonsMinutes: z.array(z.number().int().min(0).max(105).multipleOf(15)).min(1).max(8),
@@ -78,17 +80,24 @@ export const studyDefinitionSchema = z.object({
 export type StudyDefinition = z.infer<typeof studyDefinitionSchema>;
 
 const storedStudyEnvelopeSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
 }).passthrough();
 
 export function parseStoredStudyDefinition(value: unknown) {
   const stored = storedStudyEnvelopeSchema.parse(value);
-  const reportPolicyPreregistered = stored.schemaVersion === 2;
-  const definition = studyDefinitionSchema.parse(reportPolicyPreregistered ? stored : {
+  const reportPolicyPreregistered = stored.schemaVersion >= 2;
+  const runtimeParametersPreregistered = stored.schemaVersion >= 3;
+  const definition = studyDefinitionSchema.parse({
     ...stored,
-    ...STUDY_REPORT_POLICY,
+    ...(!reportPolicyPreregistered ? STUDY_REPORT_POLICY : {}),
+    ...(!runtimeParametersPreregistered ? { inputFrameCount: 4, ensembleMembers: 24 } : {}),
   });
-  return { definition, reportPolicyPreregistered, schemaVersion: stored.schemaVersion };
+  return {
+    definition,
+    reportPolicyPreregistered,
+    runtimeParametersPreregistered,
+    schemaVersion: stored.schemaVersion,
+  };
 }
 
 export type StudyTarget = {

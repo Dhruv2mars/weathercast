@@ -13,7 +13,12 @@ import { STUDY_REPORT_POLICY, studyDefinitionSchema } from './study-contract';
 
 const target = { id: 'KHSV', latitude: 34.6441, longitude: -86.7862 };
 
-function study(id: string, startsAt: string, endsAt: string) {
+function study(
+  id: string,
+  startsAt: string,
+  endsAt: string,
+  overrides: Record<string, unknown> = {},
+) {
   return studyDefinitionSchema.parse({
     id,
     title: `Prospective calibration partition ${id}`,
@@ -22,6 +27,8 @@ function study(id: string, startsAt: string, endsAt: string) {
     algorithmVersion: 'translation-ensemble-v1',
     domain: 'CONUS',
     product: 'PrecipRate_00.00',
+    inputFrameCount: 3,
+    ensembleMembers: 24,
     stationIds: [target.id],
     issueCadenceMinutes: 15,
     horizonsMinutes: [0],
@@ -29,6 +36,7 @@ function study(id: string, startsAt: string, endsAt: string) {
     minimumObservationCountPerHorizon: 100,
     ...STUDY_REPORT_POLICY,
     exclusionPolicy: 'verified prospective observations only; no post-registration cohort changes',
+    ...overrides,
   });
 }
 
@@ -48,7 +56,7 @@ function plan() {
   });
 }
 
-function registerStudies(archive: ForecastArchive) {
+function registerStudies(archive: ForecastArchive, evaluationInputFrameCount = 3) {
   const registeredAt = '2026-07-10T22:00:00.000Z';
   archive.registerVerificationStudy({
     definition: study('training-study-2026', '2026-07-11T00:00:00.000Z', '2026-07-18T00:00:00.000Z'),
@@ -61,7 +69,12 @@ function registerStudies(archive: ForecastArchive) {
     targets: [target],
   });
   archive.registerVerificationStudy({
-    definition: study('evaluation-study-2026', '2026-07-26T00:00:00.000Z', '2026-08-02T00:00:00.000Z'),
+    definition: study(
+      'evaluation-study-2026',
+      '2026-07-26T00:00:00.000Z',
+      '2026-08-02T00:00:00.000Z',
+      { inputFrameCount: evaluationInputFrameCount },
+    ),
     registeredAt,
     targets: [target],
   });
@@ -228,6 +241,13 @@ describe('calibration archive', () => {
       registeredAt: '2026-07-10T23:00:00.000Z',
     })).toThrow('training, validation, then evaluation');
     archive.close();
+    const mismatched = new ForecastArchive(':memory:');
+    registerStudies(mismatched, 4);
+    expect(() => mismatched.registerCalibrationPlan({
+      definition: plan(),
+      registeredAt: '2026-07-10T23:00:00.000Z',
+    })).toThrow('runtime parameters differ across partitions');
+    mismatched.close();
   });
 
   test('fits and archives a validation-gated artifact before evaluation begins', () => {
