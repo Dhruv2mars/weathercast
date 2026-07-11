@@ -4,6 +4,9 @@ export type ProductionClientConfig = {
   nowcastApiUrl: string;
   radarManifestUrl: string;
   googleMapsApiKey: string;
+  privacyPolicyUrl: string;
+  termsUrl: string;
+  supportUrl: string;
 };
 
 function httpsUrl(name: string, value: string | undefined) {
@@ -30,6 +33,9 @@ export function validateProductionClientConfig(environment: Record<string, strin
     nowcastApiUrl: httpsUrl('EXPO_PUBLIC_NOWCAST_API_URL', environment.EXPO_PUBLIC_NOWCAST_API_URL),
     radarManifestUrl: httpsUrl('EXPO_PUBLIC_RADAR_MANIFEST_URL', environment.EXPO_PUBLIC_RADAR_MANIFEST_URL),
     googleMapsApiKey,
+    privacyPolicyUrl: httpsUrl('EXPO_PUBLIC_PRIVACY_POLICY_URL', environment.EXPO_PUBLIC_PRIVACY_POLICY_URL),
+    termsUrl: httpsUrl('EXPO_PUBLIC_TERMS_URL', environment.EXPO_PUBLIC_TERMS_URL),
+    supportUrl: httpsUrl('EXPO_PUBLIC_SUPPORT_URL', environment.EXPO_PUBLIC_SUPPORT_URL),
   };
 }
 
@@ -101,6 +107,11 @@ export default (): ExpoConfig => {
     extra: {
       router: {},
       eas: { projectId: 'caf9584b-fccf-4cee-8098-ee3e11c4e5c6' },
+      legal: {
+        privacyPolicyUrl: process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL,
+        termsUrl: process.env.EXPO_PUBLIC_TERMS_URL,
+        supportUrl: process.env.EXPO_PUBLIC_SUPPORT_URL,
+      },
     },
   };
 };

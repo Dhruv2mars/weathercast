@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { Alert, Pressable, Switch, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, Switch, Text, View } from 'react-native';
 
 import { Screen } from '@/components/screen';
 import { Divider, Group, Section } from '@/components/section';
@@ -69,6 +69,20 @@ export default function SettingsScreen() {
           <Pressable accessibilityRole="button" onPress={() => router.push('/privacy')} style={{ minHeight: 56, padding: 16, justifyContent: 'center' }}>
             <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>Privacy policy</Text>
             <Text style={{ color: theme.secondaryText }}>What stays on-device and what providers receive</Text>
+          </Pressable>
+          <Divider />
+          <Pressable accessibilityRole="button" onPress={() => router.push('/terms')} style={{ minHeight: 56, padding: 16, justifyContent: 'center' }}>
+            <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>Terms of use</Text>
+            <Text style={{ color: theme.secondaryText }}>Forecast limits, safety, and acceptable use</Text>
+          </Pressable>
+          <Divider />
+          <Pressable
+            accessibilityRole="link"
+            onPress={() => Linking.openURL(process.env.EXPO_PUBLIC_SUPPORT_URL ?? 'https://github.com/Dhruv2mars/weathercast/issues')}
+            style={{ minHeight: 56, padding: 16, justifyContent: 'center' }}
+          >
+            <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>Support</Text>
+            <Text style={{ color: theme.secondaryText }}>Get help or report a problem</Text>
           </Pressable>
           <Divider />
           <Pressable
