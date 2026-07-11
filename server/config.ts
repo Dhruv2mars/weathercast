@@ -4,6 +4,8 @@ const environmentSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65_535).default(8787),
   DATABASE_PATH: z.string().min(1).default('.data/weathercast.sqlite'),
+  ARCHIVE_MODE: z.enum(['sqlite', 'postgres']).default('sqlite'),
+  DATABASE_URL: z.string().min(1).optional(),
   NOWCAST_PROVIDER_MODE: z.enum(['open-meteo-evaluation', 'normalized-upstream']).default('open-meteo-evaluation'),
   OPEN_METEO_API_HOST: z.url().default('https://api.open-meteo.com'),
   NORMALIZED_UPSTREAM_URL: z.url().optional(),
@@ -32,6 +34,14 @@ export type ApiConfig = z.infer<typeof environmentSchema>;
 export function loadConfig(environment: Record<string, string | undefined> = process.env): ApiConfig {
   const config = environmentSchema.parse(environment);
 
+  if (config.ARCHIVE_MODE === 'postgres') {
+    if (!config.DATABASE_URL) throw new Error('PostgreSQL archive requires DATABASE_URL.');
+    const database = new URL(config.DATABASE_URL);
+    if (!['postgres:', 'postgresql:'].includes(database.protocol)) {
+      throw new Error('PostgreSQL archive requires a PostgreSQL DATABASE_URL.');
+    }
+  }
+
   if (config.NOWCAST_PROVIDER_MODE === 'normalized-upstream'
       && (!config.NORMALIZED_UPSTREAM_URL
         || !config.NORMALIZED_UPSTREAM_HEALTH_URL
@@ -47,6 +57,13 @@ export function loadConfig(environment: Record<string, string | undefined> = pro
     }
     if (!config.READINESS_REQUIRE_PRECISION_DATA) {
       throw new Error('Production requires precision readiness checks to be enabled.');
+    }
+    if (config.ARCHIVE_MODE !== 'postgres' || !config.DATABASE_URL) {
+      throw new Error('Production requires a PostgreSQL archive.');
+    }
+    const database = new URL(config.DATABASE_URL);
+    if (!['require', 'verify-ca', 'verify-full'].includes(database.searchParams.get('sslmode') ?? '')) {
+      throw new Error('Production requires a TLS PostgreSQL archive.');
     }
     const upstream = new URL(config.NORMALIZED_UPSTREAM_URL!);
     if (upstream.protocol !== 'https:') {

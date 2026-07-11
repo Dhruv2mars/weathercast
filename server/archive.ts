@@ -20,6 +20,7 @@ import {
   type StudyVerificationObservation,
   type StudyVerificationRun,
 } from './study-verification';
+import type { ForecastIssueInput } from './forecast-store';
 
 export type NowcastEnvelope = Nowcast & {
   schemaVersion: 1;
@@ -436,14 +437,7 @@ export class ForecastArchive {
     return row ? JSON.parse(row.response_json) as NowcastEnvelope : null;
   }
 
-  save(input: {
-    envelope: NowcastEnvelope;
-    cell: string;
-    latitude: number;
-    longitude: number;
-    provider: string;
-    upstreamRunId?: string;
-  }) {
+  save(input: ForecastIssueInput) {
     this.database.query(`
       INSERT OR IGNORE INTO forecast_issues (
         id, issued_at, generated_at, valid_until, location_cell, latitude, longitude,
@@ -461,6 +455,11 @@ export class ForecastArchive {
       input.upstreamRunId ?? null,
       JSON.stringify(input.envelope),
     );
+    const stored = this.database.query<{ response_json: string }, [string]>(`
+      SELECT response_json FROM forecast_issues WHERE id = ?
+    `).get(input.envelope.forecastId);
+    if (!stored) throw new Error('Forecast issue insert did not produce a durable row.');
+    return JSON.parse(stored.response_json) as NowcastEnvelope;
   }
 
   countForecasts() {

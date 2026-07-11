@@ -26,6 +26,8 @@ describe('loadConfig', () => {
       NORMALIZED_UPSTREAM_TOKEN: '1234567890123456',
       CORS_ORIGIN: 'https://weathercast.app',
       READINESS_REQUIRE_PRECISION_DATA: 'true',
+      ARCHIVE_MODE: 'postgres',
+      DATABASE_URL: 'postgresql://weathercast:secret@db.example/weathercast?sslmode=require',
     });
     expect(production.PORT).toBe(8787);
     expect(production.READINESS_MIN_RADAR_FRAMES).toBe(4);
@@ -33,6 +35,7 @@ describe('loadConfig', () => {
     expect(production.READINESS_RADAR_DOMAIN).toBe('CONUS');
     expect(production.READINESS_RADAR_PRODUCT).toBe('PrecipRate_00.00');
     expect(production.READINESS_OBSERVATION_SOURCE).toBe('aviation-weather-metar');
+    expect(production.ARCHIVE_MODE).toBe('postgres');
     expect(() => loadConfig({
       NODE_ENV: 'production',
       NOWCAST_PROVIDER_MODE: 'normalized-upstream',
@@ -49,7 +52,18 @@ describe('loadConfig', () => {
       NORMALIZED_UPSTREAM_TOKEN: '1234567890123456',
       CORS_ORIGIN: 'https://weathercast.app',
       READINESS_REQUIRE_PRECISION_DATA: 'true',
+      ARCHIVE_MODE: 'postgres',
+      DATABASE_URL: 'postgresql://weathercast:secret@db.example/weathercast?sslmode=require',
     })).toThrow('same origin');
+    expect(() => loadConfig({
+      NODE_ENV: 'production',
+      NOWCAST_PROVIDER_MODE: 'normalized-upstream',
+      NORMALIZED_UPSTREAM_URL: 'https://weather.example/v1/point',
+      NORMALIZED_UPSTREAM_HEALTH_URL: 'https://weather.example/healthz',
+      NORMALIZED_UPSTREAM_TOKEN: '1234567890123456',
+      CORS_ORIGIN: 'https://weathercast.app',
+      READINESS_REQUIRE_PRECISION_DATA: 'true',
+    })).toThrow('PostgreSQL archive');
     expect(() => loadConfig({
       NODE_ENV: 'test',
       READINESS_RADAR_DOMAIN: 'UNKNOWN',
@@ -64,6 +78,8 @@ describe('loadConfig', () => {
       NORMALIZED_UPSTREAM_HEALTH_URL: 'https://provider.example/healthz',
       CORS_ORIGIN: 'https://weathercast.app',
       READINESS_REQUIRE_PRECISION_DATA: 'true',
+      ARCHIVE_MODE: 'postgres',
+      DATABASE_URL: 'postgresql://weathercast:secret@db.example/weathercast?sslmode=require',
     };
     expect(() => loadConfig({ ...base, NORMALIZED_UPSTREAM_URL: 'http://provider.example/v1/point' }))
       .toThrow('must use HTTPS');

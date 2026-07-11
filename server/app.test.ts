@@ -251,6 +251,28 @@ describe('Weathercast API', () => {
     archive.close();
   });
 
+  test('awaits an asynchronous store and returns its canonical race winner', async () => {
+    const { archive, provider } = setup();
+    const canonicalGeneratedAt = '2026-07-10T09:59:59.000Z';
+    const handler = createHandler({
+      config: loadConfig({ NODE_ENV: 'test' }),
+      provider,
+      now: () => now,
+      archive: {
+        isReady: async () => true,
+        findFresh: async () => null,
+        save: async (input) => ({ ...input.envelope, generatedAt: canonicalGeneratedAt }),
+        listRadarFrames: async () => [],
+        countRecentVerifiedObservationStations: async () => 0,
+        close: async () => {},
+      },
+    });
+    const response = await handler(new Request('http://api/v1/nowcast?latitude=28.6&longitude=77.2'));
+    expect(response.status).toBe(200);
+    expect((await response.json()).generatedAt).toBe(canonicalGeneratedAt);
+    archive.close();
+  });
+
   test('supports conditional reads without changing the archived issue', async () => {
     const { archive, handler } = setup();
     const url = 'http://api/v1/nowcast?latitude=28.6139&longitude=77.2090';

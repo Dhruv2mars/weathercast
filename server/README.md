@@ -1,6 +1,6 @@
 # Weathercast API
 
-The Bun service is the owned forecast boundary used by the Expo client. It validates coordinates, deduplicates concurrent requests by a roughly 11-metre location cell, rate-limits callers, derives the v1 rain event, and writes the exact response to an append-only SQLite archive before returning `200`.
+The Bun service is the owned forecast boundary used by the Expo client. It validates coordinates, deduplicates concurrent requests by a roughly 11-metre location cell, rate-limits callers, derives the v1 rain event, and writes the exact response to an append-only archive before returning `200`. Local evaluation uses SQLite; production requires PostgreSQL.
 
 ## Local evaluation
 
@@ -21,7 +21,9 @@ Production accepts location only in a POST body, so ordinary access logs do not 
 | --- | --- |
 | `NODE_ENV` | Must be `production` in production |
 | `PORT` | HTTP port; defaults to `8787` |
-| `DATABASE_PATH` | Forecast archive path; mount durable storage |
+| `ARCHIVE_MODE` | `sqlite` locally; must be `postgres` in production |
+| `DATABASE_PATH` | Local SQLite archive path |
+| `DATABASE_URL` | PostgreSQL connection URL; production requires `sslmode=require`, `verify-ca`, or `verify-full` |
 | `NOWCAST_PROVIDER_MODE` | `normalized-upstream` in production |
 | `NORMALIZED_UPSTREAM_URL` | HTTPS licensed/provider blender endpoint |
 | `NORMALIZED_UPSTREAM_HEALTH_URL` | Same-origin authenticated readiness endpoint for the blender |
@@ -42,6 +44,8 @@ Production accepts location only in a POST body, so ordinary access logs do not 
 | `READINESS_UPSTREAM_CACHE_SECONDS` | Health-probe result cache; defaults to `15` |
 
 The upstream must return eight chronological 15-minute intervals plus explicit tier, calibration, resolution, and coverage-reason fields. See [the contract](../docs/nowcast-api.md).
+
+The PostgreSQL serving migration runs idempotently at API startup. Forecast issues, radar-frame metadata, and readiness observations are append-only. Concurrent writers for the same forecast ID return the canonical first issue. Scientific study and calibration jobs still use the SQLite evidence ledger and must be migrated separately before horizontally scaling those workers.
 
 `GET /healthz` is process liveness only. `GET /readyz` performs a database write/delete probe. In production it also requires a fresh, gap-free MRMS sequence, the configured number of distinct recently verified METAR stations, and a successful timeout-bounded authenticated upstream health probe. The health URL must share the forecast endpoint origin so the bearer token cannot be redirected to another host. Probe results are briefly cached to prevent orchestrator polling from becoming upstream load. The response exposes only pass/fail component names; source timestamps and infrastructure details remain private. A failed check returns `503` so the orchestrator can stop routing traffic.
 
