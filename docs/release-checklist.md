@@ -36,7 +36,7 @@
 - [ ] Unique bundle/package identifiers confirmed
 - [ ] Public privacy-policy and terms URLs published
 - [ ] Operational support channel tested
-- [ ] App icon, screenshots, descriptions, age rating, privacy nutrition labels, and Data Safety form approved
+- [ ] App icon, screenshots, descriptions, age rating, privacy nutrition labels, and Data Safety form approved using `store.config.json` and `docs/store-privacy-declarations.md`
 - [ ] Location/notification permission copy matches actual behavior
 - [ ] Country-specific privacy and meteorological data review completed
 
