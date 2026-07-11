@@ -17,6 +17,8 @@ function definition(overrides: Record<string, unknown> = {}) {
     algorithmVersion: 'translation-ensemble-v1',
     domain: 'CONUS',
     product: 'PrecipRate_00.00',
+    inputFrameCount: 3,
+    ensembleMembers: 24,
     stationIds: ['KHSV'],
     issueCadenceMinutes: 15,
     horizonsMinutes: [0, 15],
@@ -420,6 +422,28 @@ describe('prospective study report', () => {
       issuanceCompleteness: 0,
     }));
     expect(report.horizons[0]!.observationCount).toBe(0);
+  });
+
+  test('blocks publication and precision promotion for legacy runtime parameters', () => {
+    const study = definition({ horizonsMinutes: [0] });
+    const report = computeVerificationStudyReport({
+      definition: study,
+      definitionSha256: '9'.repeat(64),
+      registeredAt: '2026-07-10T23:00:00.000Z',
+      targetIds: ['KHSV'],
+      runs: [],
+      observations: [],
+      asOf: new Date(study.endsAt),
+      runtimeParametersPreregistered: false,
+    });
+    expect(report.gateFailures).toContain('runtime_parameters_not_preregistered');
+    expect(report.precisionPromotionGateFailures).toContain('runtime_parameters_not_preregistered');
+    expect(report.runtimeParametersPreregistered).toBe(false);
+    expect(report).toEqual(expect.objectContaining({
+      schemaVersion: 3,
+      inputFrameCount: 3,
+      ensembleMembers: 24,
+    }));
   });
 
   test('does not count the currently open cadence slot', () => {

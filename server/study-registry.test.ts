@@ -18,6 +18,8 @@ function definition() {
     algorithmVersion: 'translation-ensemble-v1',
     domain: 'CONUS',
     product: 'PrecipRate_00.00',
+    inputFrameCount: 3,
+    ensembleMembers: 24,
     stationIds: ['KHSV', 'KJFK'],
     issueCadenceMinutes: 15,
     horizonsMinutes: [0, 15, 30, 45, 60, 75, 90, 105],
@@ -110,6 +112,8 @@ describe('immutable prospective study registry', () => {
       })).toEqual({ ...first, inserted: false });
       expect(archive.getVerificationStudy(first.id)).toEqual(expect.objectContaining({
         definition_sha256: first.definitionSha256,
+        input_frame_count: 3,
+        ensemble_members: 24,
         targets,
       }));
       expect(() => archive.registerVerificationStudy({
@@ -208,6 +212,27 @@ describe('immutable prospective study registry', () => {
         issuedAt,
         runs,
       }).runs.map((run) => run.linked)).toEqual([false, false]);
+      expect(() => archive.saveVerificationStudyRadarBatch({
+        studyId: definition().id,
+        scheduledAt: '2026-07-11T00:30:00.000Z',
+        issuedAt: '2026-07-11T00:30:30.000Z',
+        runs: runs.map((candidate) => ({
+          ...candidate,
+          run: {
+            ...candidate.run,
+            response: { ...candidate.run.response, ensembleMembers: 25 },
+          },
+        })),
+      })).toThrow('registered ensemble member count');
+      expect(() => archive.saveVerificationStudyRadarBatch({
+        studyId: definition().id,
+        scheduledAt: '2026-07-11T00:30:00.000Z',
+        issuedAt: '2026-07-11T00:30:30.000Z',
+        runs: runs.map((candidate) => ({
+          ...candidate,
+          run: { ...candidate.run, inputFrameIds: candidate.run.inputFrameIds.slice(1) },
+        })),
+      })).toThrow('registered input frame count');
       expect(archive.listVerificationStudyRadarRuns(definition().id)).toHaveLength(2);
       expect(() => archive.saveVerificationStudyRadarBatch({
         studyId: definition().id,

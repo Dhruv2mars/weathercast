@@ -566,7 +566,7 @@ export class ForecastArchive {
       || target.longitude < -180
       || target.longitude > 180
     ))) throw new Error('Verification study target coordinates are invalid.');
-    const definitionJson = JSON.stringify({ schemaVersion: 2, ...definition, targets });
+    const definitionJson = JSON.stringify({ schemaVersion: 3, ...definition, targets });
     const definitionSha256 = createHash('sha256').update(definitionJson).digest('hex');
     const register = this.database.transaction(() => {
       const result = this.database.query(`
@@ -653,7 +653,18 @@ export class ForecastArchive {
       WHERE study_id = ?
       ORDER BY sequence
     `).all(id);
-    return { ...study, targets };
+    const definitionSha256 = createHash('sha256').update(study.definition_json).digest('hex');
+    if (definitionSha256 !== study.definition_sha256) {
+      throw new Error('Verification study definition checksum is invalid.');
+    }
+    const parsed = parseStoredStudyDefinition(JSON.parse(study.definition_json));
+    return {
+      ...study,
+      input_frame_count: parsed.definition.inputFrameCount,
+      ensemble_members: parsed.definition.ensembleMembers,
+      runtime_parameters_preregistered: parsed.runtimeParametersPreregistered,
+      targets,
+    };
   }
 
   registerCalibrationPlan(input: { definition: CalibrationPlan; registeredAt: string }) {
@@ -688,8 +699,8 @@ export class ForecastArchive {
         throw new Error(`Calibration partition study ${row!.id} has an invalid definition checksum.`);
       }
       const parsed = parseStoredStudyDefinition(JSON.parse(row!.definition_json));
-      if (!parsed.reportPolicyPreregistered) {
-        throw new Error(`Calibration partition study ${row!.id} did not preregister its report policy.`);
+      if (!parsed.reportPolicyPreregistered || !parsed.runtimeParametersPreregistered) {
+        throw new Error(`Calibration partition study ${row!.id} did not preregister its evidence and runtime policy.`);
       }
       if (
         row!.algorithm_version !== definition.algorithmVersion
@@ -706,6 +717,10 @@ export class ForecastArchive {
     const training = definition.trainingStudyIds.map((id) => byId.get(id)!);
     const validation = definition.validationStudyIds.map((id) => byId.get(id)!);
     const evaluation = byId.get(definition.evaluationStudyId)!;
+    if (studies.some((study) => (
+      study.definition.inputFrameCount !== evaluation.definition.inputFrameCount
+      || study.definition.ensembleMembers !== evaluation.definition.ensembleMembers
+    ))) throw new Error('Calibration study runtime parameters differ across partitions.');
     const trainingStartsAt = Math.min(...training.map((study) => new Date(study.starts_at).getTime()));
     const trainingEndsAt = Math.max(...training.map((study) => new Date(study.ends_at).getTime()));
     const validationStartsAt = Math.min(...validation.map((study) => new Date(study.starts_at).getTime()));
@@ -1131,8 +1146,11 @@ export class ForecastArchive {
       domain: string;
       product: string;
       issue_cadence_minutes: number;
+      definition_sha256: string;
+      definition_json: string;
     }, [string]>(`
-      SELECT starts_at, ends_at, algorithm_version, domain, product, issue_cadence_minutes
+      SELECT starts_at, ends_at, algorithm_version, domain, product, issue_cadence_minutes,
+        definition_sha256, definition_json
       FROM verification_studies WHERE id = ?
     `).get(input.studyId);
     if (!study) throw new Error('Verification study is not registered.');
@@ -1187,6 +1205,17 @@ export class ForecastArchive {
     if (sourceDataTimes.size !== 1) throw new Error('Study batch runs must use one common radar source time.');
     const inputFrameSequences = new Set(input.runs.map(({ run }) => JSON.stringify(run.inputFrameIds)));
     if (inputFrameSequences.size !== 1) throw new Error('Study batch runs must use the same ordered radar input frames.');
+    const registeredDefinitionSha256 = createHash('sha256').update(study.definition_json).digest('hex');
+    if (registeredDefinitionSha256 !== study.definition_sha256) {
+      throw new Error('Verification study definition checksum is invalid.');
+    }
+    const registeredDefinition = parseStoredStudyDefinition(JSON.parse(study.definition_json)).definition;
+    if (input.runs.some(({ run }) => run.inputFrameIds.length !== registeredDefinition.inputFrameCount)) {
+      throw new Error('Study runs must use the registered input frame count.');
+    }
+    if (parsedResponses.some((response) => response.ensembleMembers !== registeredDefinition.ensembleMembers)) {
+      throw new Error('Study runs must use the registered ensemble member count.');
+    }
     input.runs.forEach(({ targetId, run }, index) => {
       const response = parsedResponses[index]!;
       if (
@@ -1306,7 +1335,11 @@ export class ForecastArchive {
     if (storedDefinitionSha256 !== study.definition_sha256) {
       throw new Error('Verification study definition checksum is invalid.');
     }
-    const { definition, reportPolicyPreregistered } = parseStoredStudyDefinition(JSON.parse(study.definition_json));
+    const {
+      definition,
+      reportPolicyPreregistered,
+      runtimeParametersPreregistered,
+    } = parseStoredStudyDefinition(JSON.parse(study.definition_json));
     const targets = this.database.query<{ id: string }, [string]>(`
       SELECT target_id AS id
       FROM verification_study_targets
@@ -1388,6 +1421,7 @@ export class ForecastArchive {
       observations,
       asOf,
       reportPolicyPreregistered,
+      runtimeParametersPreregistered,
       calibrationEvaluationPolicy,
     });
   }

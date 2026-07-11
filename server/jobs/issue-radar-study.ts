@@ -9,14 +9,6 @@ import { getScheduledIssueTime, selectStudyRadarFrames } from '../study-issuance
 
 const studyId = process.argv[2];
 if (!studyId) throw new Error('Usage: bun run api:issue-radar-study <study-id>');
-const frameCount = Number(process.env.MRMS_NOWCAST_FRAME_COUNT ?? 4);
-const members = Number(process.env.MRMS_NOWCAST_MEMBERS ?? 24);
-if (!Number.isInteger(frameCount) || frameCount < 3 || frameCount > 12) {
-  throw new Error('MRMS_NOWCAST_FRAME_COUNT must be an integer from 3 through 12.');
-}
-if (!Number.isInteger(members) || members < 12 || members > 96) {
-  throw new Error('MRMS_NOWCAST_MEMBERS must be an integer from 12 through 96.');
-}
 
 const archive = new ForecastArchive(process.env.DATABASE_PATH ?? '.data/weathercast.sqlite');
 const temporary = mkdtempSync(join(tmpdir(), 'weathercast-radar-study-'));
@@ -25,6 +17,8 @@ const projectRoot = join(import.meta.dir, '..', '..');
 try {
   const study = archive.getVerificationStudy(studyId);
   if (!study) throw new Error('Verification study is not registered.');
+  const frameCount = study.input_frame_count;
+  const members = study.ensemble_members;
   const startedAt = new Date();
   const scheduledAt = getScheduledIssueTime({
     now: startedAt,

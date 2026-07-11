@@ -104,6 +104,7 @@ export function computeVerificationStudyEvidence(input: {
   observations: StudyVerificationObservation[];
   asOf: Date;
   reportPolicyPreregistered?: boolean;
+  runtimeParametersPreregistered?: boolean;
   calibrationEvaluationPolicy?: {
     artifactId: string;
     artifactSha256: string;
@@ -295,6 +296,7 @@ export function computeVerificationStudyEvidence(input: {
   });
   const gateFailures: string[] = [];
   if (input.reportPolicyPreregistered === false) gateFailures.push('report_policy_not_preregistered');
+  if (input.runtimeParametersPreregistered === false) gateFailures.push('runtime_parameters_not_preregistered');
   if (asOf < endsAt) gateFailures.push('study_in_progress');
   if (issuanceCompleteness === null || issuanceCompleteness < input.definition.minimumIssuanceCompleteness) {
     gateFailures.push('issuance_completeness_below_threshold');
@@ -312,6 +314,9 @@ export function computeVerificationStudyEvidence(input: {
       ? 'provisional_holdout' as const
       : 'mixed_or_inconsistent' as const;
   const precisionPromotionGateFailures: string[] = [];
+  if (input.runtimeParametersPreregistered === false) {
+    precisionPromotionGateFailures.push('runtime_parameters_not_preregistered');
+  }
   let calibrationHoldout: {
     observationCount: number;
     rawBrierScore: number;
@@ -393,7 +398,7 @@ export function computeVerificationStudyEvidence(input: {
   }
 
   const report = {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     studyId: input.definition.id,
     studyTitle: input.definition.title,
     definitionSha256: input.definitionSha256,
@@ -401,6 +406,8 @@ export function computeVerificationStudyEvidence(input: {
     algorithmVersion: input.definition.algorithmVersion,
     domain: input.definition.domain,
     product: input.definition.product,
+    inputFrameCount: input.definition.inputFrameCount,
+    ensembleMembers: input.definition.ensembleMembers,
     targetIds: input.targetIds,
     generatedAt: input.asOf.toISOString(),
     evaluationStartsAt: input.definition.startsAt,
@@ -418,6 +425,7 @@ export function computeVerificationStudyEvidence(input: {
     observationSamplingPolicy: input.definition.observationSamplingPolicy,
     validTimePolicy: input.definition.validTimePolicy,
     reportPolicyPreregistered: input.reportPolicyPreregistered ?? true,
+    runtimeParametersPreregistered: input.runtimeParametersPreregistered ?? true,
     primaryMetric: input.definition.primaryMetric,
     calibrationEvidence: {
       status: calibrationEvidenceStatus,

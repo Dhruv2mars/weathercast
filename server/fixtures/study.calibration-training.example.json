@@ -6,6 +6,8 @@
   "algorithmVersion": "translation-ensemble-v1",
   "domain": "CONUS",
   "product": "PrecipRate_00.00",
+  "inputFrameCount": 4,
+  "ensembleMembers": 24,
   "stationIds": [
     "KATL", "KBOS", "KCLT", "KDEN", "KDFW",
     "KHSV", "KIAD", "KIAH", "KJFK", "KLAX",
