@@ -32,13 +32,17 @@
 
 ## Store and legal gates
 
-- [ ] Active Apple Developer and Google Play accounts
-- [ ] Unique bundle/package identifiers confirmed
-- [ ] Public privacy-policy and terms URLs published
+- [x] Active Google Play developer account and Weathercast app record created
+- [ ] Apple Developer account (not required for the Android-first launch)
+- [x] Android package identifier `com.dhruv2mars.weathercast` confirmed in Google Play
+- [x] Public privacy-policy and terms URLs published
 - [ ] Operational support channel tested
 - [ ] App icon, screenshots, descriptions, age rating, privacy nutrition labels, and Data Safety form approved using `store.config.json` and `docs/store-privacy-declarations.md`
 - [ ] Location/notification permission copy matches actual behavior
 - [ ] Country-specific privacy and meteorological data review completed
+- [ ] Closed-testing release published
+- [ ] At least 12 testers continuously opted in for 14 days
+- [ ] Google Play production access approved
 
 ## Operations gates
 
