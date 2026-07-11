@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-import type { ForecastArchive, RainObservationInput } from './archive';
+import type { RainObservationInput } from './archive';
+import type { PrecisionIngestionStore } from './precision-ingestion-store';
 
 const metarSchema = z.object({
   icaoId: z.string().min(4),
@@ -56,21 +57,26 @@ export function parseMetarBytes(raw: Uint8Array) {
   return parseMetarObservations(JSON.parse(new TextDecoder().decode(raw)));
 }
 
-export function archiveMetarBatch(
-  archive: Pick<ForecastArchive, 'saveSourceAsset' | 'saveObservation'>,
+export async function archiveMetarBatch(
+  archive: Pick<PrecisionIngestionStore, 'archiveSourceAsset' | 'archiveObservationBatch'>,
   input: { stationIds: string[]; retrievedAt: string; raw: Uint8Array },
 ) {
   const upstreamKey = `metar:${input.stationIds.join(',')}:${input.retrievedAt}`;
-  const asset = archive.saveSourceAsset({
+  const assetInput = {
     provider: 'aviation-weather-metar',
     upstreamKey,
     retrievedAt: input.retrievedAt,
     mediaType: 'application/json',
     bytes: input.raw,
-  });
-  const observations = parseMetarBytes(input.raw);
-  observations.forEach((observation) => archive.saveObservation({ ...observation, sourceAssetId: asset.id }));
-  return { asset, observationsAccepted: observations.length };
+  };
+  let observations: RainObservationInput[];
+  try {
+    observations = parseMetarBytes(input.raw);
+  } catch (error) {
+    await archive.archiveSourceAsset(assetInput);
+    throw error;
+  }
+  return archive.archiveObservationBatch({ asset: assetInput, observations });
 }
 
 export class AviationWeatherMetarAdapter {

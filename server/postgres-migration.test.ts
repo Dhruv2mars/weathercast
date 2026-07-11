@@ -10,5 +10,8 @@ describe('PostgreSQL serving archive migration', () => {
     expect(sql).toContain('rain_observations_readiness');
     expect(sql).toContain('radar_frames_domain_product_observed');
     expect(sql).toContain('response_json JSONB NOT NULL');
+    expect(sql).toContain('payload BYTEA NOT NULL');
+    expect(sql).toContain('source_assets_reject_update');
+    expect(sql).toContain('rain_observed BOOLEAN NOT NULL');
   });
 });

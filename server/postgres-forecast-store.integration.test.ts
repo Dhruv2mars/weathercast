@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { SQL } from 'bun';
+import { createHash } from 'node:crypto';
 
 import type { NowcastEnvelope } from './archive';
 import { PostgresForecastStore } from './postgres-forecast-store';
@@ -59,6 +60,85 @@ postgresTest('PostgresForecastStore atomically preserves a race winner and rejec
       SELECT issued_at FROM forecast_issues WHERE id = ${id}
     `;
     expect(issuedRows[0]?.issued_at.toISOString()).toBe(first.issuedAt);
+
+    const radarBytes = new TextEncoder().encode(`radar-${id}`);
+    const radar = await store.archiveRadarFrame({
+      asset: {
+        provider: 'noaa-mrms-nodd',
+        upstreamKey: `${id}.grib2.gz`,
+        retrievedAt: '2099-01-01T00:04:30.000Z',
+        mediaType: 'application/gzip',
+        bytes: radarBytes,
+      },
+      frame: {
+        domain: 'CONUS',
+        product: 'PrecipRate_00.00',
+        observedAt: '2099-01-01T00:04:00.000Z',
+        retrievedAt: '2099-01-01T00:04:30.000Z',
+        objectKey: `${id}.grib2.gz`,
+      },
+    });
+    expect((await store.listRadarFrames('CONUS', 'PrecipRate_00.00', 1))[0]?.id).toBe(radar.frameId);
+
+    const metarBytes = new TextEncoder().encode(JSON.stringify({ icaoId: 'VIDP', id }));
+    const observationBatch = await store.archiveObservationBatch({
+      asset: {
+        provider: 'aviation-weather-metar',
+        upstreamKey: `metar:${id}`,
+        retrievedAt: '2099-01-01T00:05:30.000Z',
+        mediaType: 'application/json',
+        bytes: metarBytes,
+      },
+      observations: [{
+        source: 'aviation-weather-metar',
+        sourceEventId: `VIDP:${id}`,
+        observedAt: '2099-01-01T00:05:00.000Z',
+        latitude: 28.5665,
+        longitude: 77.1031,
+        rainObserved: true,
+        accumulationMm: 1.2,
+        quality: 'verified',
+        truthResolutionSeconds: 3600,
+        onsetPublishable: false,
+        payload: { icaoId: 'VIDP', id },
+      }],
+    });
+    expect(observationBatch.observationsAccepted).toBe(1);
+    expect(await store.countRecentVerifiedObservationStations(
+      'aviation-weather-metar',
+      '2099-01-01T00:00:00.000Z',
+      '2099-01-01T00:10:00.000Z',
+    )).toBe(1);
+    const sourceRows = await sql<Array<{ payload: Uint8Array }>>`
+      SELECT payload FROM source_assets WHERE id = ${observationBatch.asset.id}
+    `;
+    expect(new TextDecoder().decode(sourceRows[0]?.payload)).toBe(new TextDecoder().decode(metarBytes));
+
+    const rejectedBytes = new TextEncoder().encode(`rejected-${id}`);
+    await expect(store.archiveObservationBatch({
+      asset: {
+        provider: 'integration-test',
+        upstreamKey: `rejected:${id}`,
+        retrievedAt: '2099-01-01T00:06:00.000Z',
+        mediaType: 'application/json',
+        bytes: rejectedBytes,
+      },
+      observations: [{
+        source: 'integration-test',
+        sourceEventId: `invalid:${id}`,
+        observedAt: '2099-01-01T00:06:00.000Z',
+        latitude: 999,
+        longitude: 0,
+        rainObserved: false,
+        quality: 'verified',
+        payload: { icaoId: 'FAIL' },
+      }],
+    })).rejects.toThrow();
+    const rejectedId = createHash('sha256').update(rejectedBytes).digest('hex').slice(0, 24);
+    const rejectedRows = await sql<Array<{ count: number }>>`
+      SELECT COUNT(*)::int AS count FROM source_assets WHERE id = ${rejectedId}
+    `;
+    expect(rejectedRows[0]?.count).toBe(0);
     let mutationError = '';
     try {
       await sql`UPDATE forecast_issues SET provider = 'mutated' WHERE id = ${id}`;

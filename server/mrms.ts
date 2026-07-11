@@ -1,5 +1,5 @@
-import type { ForecastArchive } from './archive';
 import { gunzipSync } from 'node:zlib';
+import type { PrecisionIngestionStore } from './precision-ingestion-store';
 
 export type MrmsDomain = 'CONUS';
 export type MrmsProduct = 'PrecipRate_00.00' | 'RadarQualityIndex_00.00';
@@ -111,7 +111,7 @@ export class MrmsAdapter {
 }
 
 export async function ingestMrmsFrames(input: {
-  archive: Pick<ForecastArchive, 'saveSourceAsset' | 'saveRadarFrame'>;
+  archive: Pick<PrecisionIngestionStore, 'archiveRadarFrame'>;
   adapter: MrmsAdapter;
   domain: MrmsDomain;
   product: MrmsProduct;
@@ -124,20 +124,21 @@ export async function ingestMrmsFrames(input: {
   const retrievedAt = input.now.toISOString();
   for (const object of selected) {
     const raw = await input.adapter.download(object, input.signal);
-    const asset = input.archive.saveSourceAsset({
-      provider: 'noaa-mrms-nodd',
-      upstreamKey: object.key,
-      retrievedAt,
-      mediaType: 'application/gzip',
-      bytes: raw,
-    });
-    input.archive.saveRadarFrame({
-      domain: input.domain,
-      product: input.product,
-      observedAt: object.observedAt,
-      retrievedAt,
-      objectKey: object.key,
-      sourceAssetId: asset.id,
+    await input.archive.archiveRadarFrame({
+      asset: {
+        provider: 'noaa-mrms-nodd',
+        upstreamKey: object.key,
+        retrievedAt,
+        mediaType: 'application/gzip',
+        bytes: raw,
+      },
+      frame: {
+        domain: input.domain,
+        product: input.product,
+        observedAt: object.observedAt,
+        retrievedAt,
+        objectKey: object.key,
+      },
     });
   }
   return { discovered: objects.length, ingested: selected.length };
