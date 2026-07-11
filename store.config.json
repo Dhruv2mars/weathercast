@@ -1,0 +1,24 @@
+{
+  "configVersion": 0,
+  "apple": {
+    "info": {
+      "en-US": {
+        "title": "Weathercast — Rain Nowcast",
+        "subtitle": "Know when rain reaches you",
+        "description": "Weathercast answers one question clearly: when will rain reach this place?\n\nChoose a place or use foreground location to see rain arrival timing, expected intensity, likely duration, and forecast confidence for the next 120 minutes. Coverage tiers distinguish radar-supported precision from model-based guidance, so the app does not imply unsupported street-level accuracy.\n\nSave places on your device, view the latest radar where available, and schedule local rain reminders without creating an account or enabling background location.\n\nWeathercast is not an emergency-warning or life-safety service. Follow official local alerts.",
+        "keywords": [
+          "rain",
+          "nowcast",
+          "radar",
+          "weather",
+          "precipitation",
+          "alerts",
+          "forecast"
+        ],
+        "marketingUrl": "https://weathercast.expo.app",
+        "supportUrl": "https://github.com/Dhruv2mars/weathercast/issues",
+        "privacyPolicyUrl": "https://weathercast.expo.app/privacy"
+      }
+    }
+  }
+}

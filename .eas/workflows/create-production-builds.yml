@@ -1,0 +1,20 @@
+name: Create production builds
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build_android:
+    name: Build Android store bundle
+    type: build
+    environment: production
+    params:
+      platform: android
+      profile: production
+  build_ios:
+    name: Build iOS store archive
+    type: build
+    environment: production
+    params:
+      platform: ios
+      profile: production
