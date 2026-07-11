@@ -236,6 +236,82 @@ describe('prospective study report', () => {
       .not.toContain('independent_calibration_holdout_not_registered');
   });
 
+  test('fails closed across inconsistent calibration holdout evidence', () => {
+    const study = definition({ horizonsMinutes: [0] });
+    const policy = {
+      artifactId: 'c'.repeat(24),
+      artifactSha256: 'd'.repeat(64),
+      maximumHoldoutBrierDegradation: 0,
+      minimumAggregateHoldoutBrierImprovement: 0.001,
+    };
+    const provisionalRun: StudyVerificationRun = {
+      runId: 'provisional-gate-run',
+      targetId: 'KHSV',
+      scheduledAt: study.startsAt,
+      issuedAt: '2026-07-11T00:01:00.000Z',
+      response: provisionalNowcast(study.startsAt),
+    };
+    const observation = {
+      id: 'gate-observation',
+      targetId: 'KHSV',
+      observedAt: '2026-07-11T00:07:00.000Z',
+      rainObserved: false,
+    };
+    const report = (
+      runs: StudyVerificationRun[],
+      observations = [observation],
+      calibrationEvaluationPolicy?: typeof policy,
+    ) => computeVerificationStudyReport({
+      definition: study,
+      definitionSha256: '4'.repeat(64),
+      registeredAt: '2026-07-10T23:00:00.000Z',
+      targetIds: ['KHSV'],
+      runs,
+      observations,
+      asOf: new Date('2026-07-11T00:30:00.000Z'),
+      calibrationEvaluationPolicy,
+    });
+
+    expect(report([provisionalRun]).precisionPromotionGateFailures)
+      .toContain('calibration_evaluation_policy_not_preregistered');
+    expect(report([provisionalRun], [observation], {
+      ...policy,
+      artifactId: 'e'.repeat(24),
+    }).precisionPromotionGateFailures)
+      .toContain('calibration_artifact_does_not_match_preregistered_holdout');
+    expect(report([provisionalRun], [], policy).precisionPromotionGateFailures)
+      .toContain('calibration_holdout_has_no_paired_observations');
+
+    const degraded = provisionalNowcast(study.startsAt);
+    const degradedInterval = degraded.intervals[0]!;
+    if (degradedInterval.status !== 'valid') throw new Error('Test nowcast interval must be valid.');
+    degraded.intervals[0] = { ...degradedInterval, probability: 90 };
+    degraded.calibration!.rawProbabilities[0] = 20;
+    const degradedFailures = report([{ ...provisionalRun, response: degraded }], [observation], policy)
+      .precisionPromotionGateFailures;
+    expect(degradedFailures).toContain('holdout_brier_degraded:0');
+    expect(degradedFailures).toContain('aggregate_holdout_brier_improvement_below_threshold');
+
+    const secondScheduledAt = '2026-07-11T00:15:00.000Z';
+    const mixed = report([
+      provisionalRun,
+      {
+        runId: 'uncalibrated-gate-run',
+        targetId: 'KHSV',
+        scheduledAt: secondScheduledAt,
+        issuedAt: '2026-07-11T00:16:00.000Z',
+        response: nowcast(secondScheduledAt),
+      },
+    ], [observation, {
+      id: 'second-gate-observation',
+      targetId: 'KHSV',
+      observedAt: '2026-07-11T00:22:00.000Z',
+      rainObserved: false,
+    }], policy);
+    expect(mixed.precisionPromotionGateFailures)
+      .toContain('calibration_provenance_is_mixed_or_inconsistent');
+  });
+
   test('uses one nearest observation per run and horizon with prospective time boundaries', () => {
     const run: StudyVerificationRun = {
       runId: 'run-1',

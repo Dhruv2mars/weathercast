@@ -8,6 +8,7 @@ import { ForecastArchive } from './archive';
 import { applyCalibrationArtifact } from './calibration';
 import { CALIBRATION_POLICY, calibrationPlanSchema } from './calibration-contract';
 import type { RadarNowcast } from './radar-nowcast-contract';
+import { createRadarEnsembleSeed } from './radar-nowcast-runner';
 import { STUDY_REPORT_POLICY, studyDefinitionSchema } from './study-contract';
 
 const target = { id: 'KHSV', latitude: 34.6441, longitude: -86.7862 };
@@ -66,7 +67,12 @@ function registerStudies(archive: ForecastArchive) {
   });
 }
 
-function nowcast(sourceDataTime: string, probability: number, onlyFirstValid = false): RadarNowcast {
+function nowcast(
+  sourceDataTime: string,
+  probability: number,
+  inputSha256: string[],
+  onlyFirstValid = false,
+): RadarNowcast {
   return {
     schemaVersion: 1,
     algorithmVersion: 'translation-ensemble-v1',
@@ -83,7 +89,11 @@ function nowcast(sourceDataTime: string, probability: number, onlyFirstValid = f
       signal: 0.8,
     },
     ensembleMembers: 24,
-    seed: '0123456789abcdef',
+    seed: createRadarEnsembleSeed({
+      inputSha256,
+      latitude: target.latitude,
+      longitude: target.longitude,
+    }),
     intervals: Array.from({ length: 8 }, (_, index) => {
       const base = {
         leadStartMinutes: index * 15,
@@ -95,7 +105,7 @@ function nowcast(sourceDataTime: string, probability: number, onlyFirstValid = f
         : { ...base, status: 'no_coverage' as const, probability: null, rainRateMmPerHour: null };
     }),
     location: { latitude: target.latitude, longitude: target.longitude },
-    inputSha256: ['a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64)],
+    inputSha256,
     coverage: {
       tier: 'shadow',
       minimumTileFraction: 1,
@@ -114,7 +124,7 @@ function issuePartition(
   for (let index = 0; index < count; index += 1) {
     const scheduledTime = Date.parse(startsAt) + index * 15 * 60_000;
     const scheduledAt = new Date(scheduledTime).toISOString();
-    const inputFrameIds = [-4, -2, 0].map((offset, frameIndex) => {
+    const inputs = [-4, -2, 0].map((offset, frameIndex) => {
       const observedAt = new Date(scheduledTime + offset * 60_000).toISOString();
       const asset = archive.saveSourceAsset({
         provider: 'noaa-mrms',
@@ -123,15 +133,17 @@ function issuePartition(
         mediaType: 'application/gzip',
         bytes: new TextEncoder().encode(`${studyId}:${index}:${frameIndex}`),
       });
-      return archive.saveRadarFrame({
+      return { id: archive.saveRadarFrame({
         domain: 'CONUS',
         product: 'PrecipRate_00.00',
         observedAt,
         retrievedAt: new Date(scheduledTime + 60_000).toISOString(),
         objectKey: `${studyId}:${index}:${frameIndex}`,
         sourceAssetId: asset.id,
-      });
+      }), sha256: asset.sha256 };
     });
+    const inputFrameIds = inputs.map((input) => input.id);
+    const inputSha256 = inputs.map((input) => input.sha256);
     archive.saveVerificationStudyRadarBatch({
       studyId,
       scheduledAt,
@@ -146,7 +158,7 @@ function issuePartition(
           product: 'PrecipRate_00.00',
           algorithmVersion: 'translation-ensemble-v1',
           inputFrameIds,
-          response: nowcast(scheduledAt, 80),
+          response: nowcast(scheduledAt, 80, inputSha256),
         },
       }],
     });
@@ -183,6 +195,10 @@ describe('calibration archive', () => {
         definition_sha256: first.definitionSha256,
         definition: plan(),
       }));
+      expect(() => archive.registerCalibrationPlan({
+        definition: calibrationPlanSchema.parse({ ...plan(), id: 'second-conus-calibration-plan' }),
+        registeredAt: '2026-07-10T23:30:00.000Z',
+      })).toThrow('already claimed by calibration plan');
       archive.close();
 
       const database = new Database(path);
@@ -264,7 +280,7 @@ describe('calibration archive', () => {
         .toEqual(fitted.artifact);
 
       const evaluationTime = Date.parse('2026-07-26T00:00:00.000Z');
-      const evaluationFrames = [-4, -2, 0].map((offset, index) => {
+      const evaluationInputs = [-4, -2, 0].map((offset, index) => {
         const observedAt = new Date(evaluationTime + offset * 60_000).toISOString();
         const asset = archive.saveSourceAsset({
           provider: 'noaa-mrms',
@@ -273,16 +289,23 @@ describe('calibration archive', () => {
           mediaType: 'application/gzip',
           bytes: new TextEncoder().encode(`evaluation:${index}`),
         });
-        return archive.saveRadarFrame({
+        return { id: archive.saveRadarFrame({
           domain: 'CONUS',
           product: 'PrecipRate_00.00',
           observedAt,
           retrievedAt: '2026-07-26T00:01:00.000Z',
           objectKey: `evaluation:${index}`,
           sourceAssetId: asset.id,
-        });
+        }), sha256: asset.sha256 };
       });
-      const rawEvaluationNowcast = nowcast('2026-07-26T00:00:00.000Z', 80, true);
+      const evaluationFrames = evaluationInputs.map((input) => input.id);
+      const evaluationSha256 = evaluationInputs.map((input) => input.sha256);
+      const rawEvaluationNowcast = nowcast(
+        '2026-07-26T00:00:00.000Z',
+        80,
+        evaluationSha256,
+        true,
+      );
       const evaluationBatch = (response: RadarNowcast) => ({
         studyId: 'evaluation-study-2026',
         scheduledAt: '2026-07-26T00:00:00.000Z',
@@ -314,6 +337,14 @@ describe('calibration archive', () => {
       };
       expect(() => archive.saveVerificationStudyRadarBatch(evaluationBatch(forgedEvaluationNowcast)))
         .toThrow('does not match its bound artifact');
+      expect(() => archive.saveVerificationStudyRadarBatch(evaluationBatch({
+        ...calibratedEvaluationNowcast,
+        location: { ...calibratedEvaluationNowcast.location, latitude: 35 },
+      }))).toThrow('different location');
+      expect(() => archive.saveVerificationStudyRadarBatch(evaluationBatch({
+        ...calibratedEvaluationNowcast,
+        inputSha256: calibratedEvaluationNowcast.inputSha256.toReversed(),
+      }))).toThrow('checksums do not match');
       expect(archive.saveVerificationStudyRadarBatch(
         evaluationBatch(calibratedEvaluationNowcast),
       ).runs[0]!.linked).toBe(true);

@@ -13,6 +13,7 @@ import {
 } from './calibration';
 import { calibrationPlanSchema, type CalibrationPlan } from './calibration-contract';
 import { radarNowcastSchema } from './radar-nowcast-contract';
+import { validateRadarNowcastProvenance } from './radar-nowcast-runner';
 import { parseStoredStudyDefinition, studyDefinitionSchema, type StudyDefinition, type StudyTarget } from './study-contract';
 import {
   computeVerificationStudyEvidence,
@@ -743,6 +744,14 @@ export class ForecastArchive {
     }, [string]>('SELECT registered_at, definition_sha256 FROM calibration_plans WHERE id = ?')
       .get(definition.id);
     if (!existing || existing.definition_sha256 !== definitionSha256) {
+      const evaluationConflict = this.database.query<{ id: string }, [string]>(
+        'SELECT id FROM calibration_plans WHERE evaluation_study_id = ?',
+      ).get(definition.evaluationStudyId);
+      if (evaluationConflict && evaluationConflict.id !== definition.id) {
+        throw new Error(
+          `Evaluation study ${definition.evaluationStudyId} is already claimed by calibration plan ${evaluationConflict.id}.`,
+        );
+      }
       throw new Error('Calibration plan ID is already registered with a different definition.');
     }
     return {
@@ -1190,6 +1199,23 @@ export class ForecastArchive {
       if (locationCell(run.latitude, run.longitude) !== targets[index]?.location_cell) {
         throw new Error(`Study run for target ${targetId} location does not match its frozen target.`);
       }
+      const inputSha256 = run.inputFrameIds.map((frameId) => this.database.query<{
+        sha256: string;
+      }, [string]>(`
+        SELECT asset.sha256
+        FROM radar_frames frame
+        JOIN source_assets asset ON asset.id = frame.source_asset_id
+        WHERE frame.id = ?
+      `).get(frameId)?.sha256);
+      if (inputSha256.some((checksum) => checksum === undefined)) {
+        throw new Error(`Study run for target ${targetId} references an unavailable radar source asset.`);
+      }
+      validateRadarNowcastProvenance(response, {
+        latitude: run.latitude,
+        longitude: run.longitude,
+        sourceDataTime: run.sourceDataTime,
+        inputSha256: inputSha256 as string[],
+      });
       const sourceTime = new Date(run.sourceDataTime).getTime();
       if (!Number.isFinite(sourceTime) || sourceTime > issuedTime) {
         throw new Error(`Study run for target ${targetId} source time must not be later than issuance.`);

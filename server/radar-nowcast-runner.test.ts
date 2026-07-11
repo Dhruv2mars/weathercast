@@ -1,11 +1,18 @@
 import { describe, expect, test } from 'bun:test';
 
-import { validateRadarBatchDecoderOutput, validateRadarDecoderOutput } from './radar-nowcast-runner';
+import {
+  createRadarEnsembleSeed,
+  validateRadarBatchDecoderOutput,
+  validateRadarDecoderOutput,
+} from './radar-nowcast-runner';
 
 const checksums = ['a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64), 'd'.repeat(64)];
 
 function output(overrides: Record<string, unknown> = {}) {
   const sourceDataTime = '2026-07-10T15:38:00Z';
+  const location = (overrides.location as { latitude: number; longitude: number } | undefined)
+    ?? { latitude: 35.005, longitude: -87.115 };
+  const inputSha256 = (overrides.inputSha256 as string[] | undefined) ?? checksums;
   return JSON.stringify({
     schemaVersion: 1,
     algorithmVersion: 'translation-ensemble-v1',
@@ -22,7 +29,7 @@ function output(overrides: Record<string, unknown> = {}) {
       signal: 0.8,
     },
     ensembleMembers: 24,
-    seed: '0123456789abcdef',
+    seed: createRadarEnsembleSeed({ inputSha256, ...location }),
     intervals: Array.from({ length: 8 }, (_, index) => ({
       leadStartMinutes: index * 15,
       leadEndMinutes: (index + 1) * 15,
@@ -31,8 +38,8 @@ function output(overrides: Record<string, unknown> = {}) {
       probability: 50,
       rainRateMmPerHour: 2,
     })),
-    location: { latitude: 35.005, longitude: -87.115 },
-    inputSha256: checksums,
+    location,
+    inputSha256,
     coverage: {
       tier: 'shadow',
       minimumTileFraction: 1,
@@ -60,6 +67,10 @@ describe('radar decoder boundary', () => {
       output: output({ inputSha256: checksums.slice(0, 3) }),
       ...expected,
     })).toThrow('checksums do not match');
+    expect(() => validateRadarDecoderOutput({
+      output: output({ seed: '0123456789abcdef' }),
+      ...expected,
+    })).toThrow('seed does not match');
     expect(() => validateRadarDecoderOutput({
       output: output({ inputSha256: [...checksums].reverse() }),
       ...expected,
