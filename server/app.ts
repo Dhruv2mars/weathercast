@@ -141,8 +141,8 @@ export function createHandler({ config, archive, provider, now = () => new Date(
           try {
             selectStudyRadarFrames({
               newestFirst: archive.listRadarFrames(
-                'CONUS',
-                'PrecipRate_00.00',
+                config.READINESS_RADAR_DOMAIN,
+                config.READINESS_RADAR_PRODUCT,
                 config.READINESS_MIN_RADAR_FRAMES,
               ),
               expectedCount: config.READINESS_MIN_RADAR_FRAMES,
@@ -159,7 +159,7 @@ export function createHandler({ config, archive, provider, now = () => new Date(
         if (archiveReady) {
           try {
             observationsReady = archive.countRecentVerifiedObservationStations(
-              'aviation-weather-metar',
+              config.READINESS_OBSERVATION_SOURCE,
               observationSince,
               through,
             ) >= config.READINESS_MIN_OBSERVATION_STATIONS;

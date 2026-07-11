@@ -18,6 +18,10 @@ const environmentSchema = z.object({
   READINESS_OBSERVATION_MAX_AGE_SECONDS: z.coerce.number().int().min(300).max(14_400).default(7200),
   READINESS_MIN_RADAR_FRAMES: z.coerce.number().int().min(3).max(12).default(4),
   READINESS_MIN_OBSERVATION_STATIONS: z.coerce.number().int().min(1).max(500).default(10),
+  READINESS_RADAR_DOMAIN: z.enum(['CONUS']).default('CONUS'),
+  READINESS_RADAR_PRODUCT: z.enum(['PrecipRate_00.00']).default('PrecipRate_00.00'),
+  READINESS_OBSERVATION_SOURCE: z.enum(['aviation-weather-metar'])
+    .default('aviation-weather-metar'),
 });
 
 export type ApiConfig = z.infer<typeof environmentSchema>;

@@ -315,6 +315,10 @@ export class ForecastArchive {
       );
       CREATE INDEX IF NOT EXISTS rain_observations_cell_time
         ON rain_observations(location_cell, observed_at);
+      CREATE INDEX IF NOT EXISTS rain_observations_readiness
+        ON rain_observations(
+          source, quality, observed_at, json_extract(payload_json, '$.icaoId')
+        );
       CREATE TABLE IF NOT EXISTS forecast_scores (
         forecast_id TEXT NOT NULL REFERENCES forecast_issues(id),
         metric TEXT NOT NULL,

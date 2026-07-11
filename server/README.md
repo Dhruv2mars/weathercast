@@ -34,6 +34,9 @@ Production accepts location only in a POST body, so ordinary access logs do not 
 | `READINESS_OBSERVATION_MAX_AGE_SECONDS` | Maximum age of verified METAR truth; defaults to `7200` |
 | `READINESS_MIN_RADAR_FRAMES` | Required contiguous fresh MRMS frames; defaults to `4` |
 | `READINESS_MIN_OBSERVATION_STATIONS` | Required distinct fresh verified METAR stations; defaults to `10` |
+| `READINESS_RADAR_DOMAIN` | Regional radar domain; currently validated to `CONUS` |
+| `READINESS_RADAR_PRODUCT` | Radar product; currently validated to `PrecipRate_00.00` |
+| `READINESS_OBSERVATION_SOURCE` | Truth feed; currently validated to `aviation-weather-metar` |
 
 The upstream must return eight chronological 15-minute intervals plus explicit tier, calibration, resolution, and coverage-reason fields. See [the contract](../docs/nowcast-api.md).
 

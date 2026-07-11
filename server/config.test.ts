@@ -28,6 +28,9 @@ describe('loadConfig', () => {
     expect(production.PORT).toBe(8787);
     expect(production.READINESS_MIN_RADAR_FRAMES).toBe(4);
     expect(production.READINESS_MIN_OBSERVATION_STATIONS).toBe(10);
+    expect(production.READINESS_RADAR_DOMAIN).toBe('CONUS');
+    expect(production.READINESS_RADAR_PRODUCT).toBe('PrecipRate_00.00');
+    expect(production.READINESS_OBSERVATION_SOURCE).toBe('aviation-weather-metar');
     expect(() => loadConfig({
       NODE_ENV: 'production',
       NOWCAST_PROVIDER_MODE: 'normalized-upstream',
@@ -35,6 +38,10 @@ describe('loadConfig', () => {
       NORMALIZED_UPSTREAM_TOKEN: '1234567890123456',
       CORS_ORIGIN: 'https://weathercast.app',
     })).toThrow('precision readiness');
+    expect(() => loadConfig({
+      NODE_ENV: 'test',
+      READINESS_RADAR_DOMAIN: 'UNKNOWN',
+    })).toThrow();
   });
 
   test('rejects insecure and evaluation upstream hosts in production', () => {

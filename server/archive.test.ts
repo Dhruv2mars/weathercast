@@ -33,6 +33,12 @@ describe('ForecastArchive', () => {
       .toThrow('forecast issues are immutable');
     expect(() => database.query('DELETE FROM forecast_issues WHERE id = ?').run('id-1'))
       .toThrow('forecast issues are immutable');
+    const readinessIndex = database.query<{ sql: string }, []>(`
+      SELECT sql FROM sqlite_master
+      WHERE type = 'index' AND name = 'rain_observations_readiness'
+    `).get();
+    expect(readinessIndex?.sql).toContain('source, quality, observed_at');
+    expect(readinessIndex?.sql).toContain("json_extract(payload_json, '$.icaoId')");
     database.close();
   });
 
