@@ -61,8 +61,8 @@ export function createHandler({ config, archive, provider, now = () => new Date(
   let upstreamReadiness: { healthy: boolean; expiresAt: number } | undefined;
   let upstreamReadinessProbe: Promise<boolean> | undefined;
 
-  async function checkUpstreamReadiness(checkedAt: Date) {
-    if (upstreamReadiness && upstreamReadiness.expiresAt > checkedAt.getTime()) {
+  async function checkUpstreamReadiness() {
+    if (upstreamReadiness && upstreamReadiness.expiresAt > performance.now()) {
       return upstreamReadiness.healthy;
     }
     if (!upstreamReadinessProbe) {
@@ -82,7 +82,7 @@ export function createHandler({ config, archive, provider, now = () => new Date(
       const healthy = await upstreamReadinessProbe;
       upstreamReadiness = {
         healthy,
-        expiresAt: checkedAt.getTime() + config.READINESS_UPSTREAM_CACHE_SECONDS * 1000,
+        expiresAt: performance.now() + config.READINESS_UPSTREAM_CACHE_SECONDS * 1000,
       };
       return healthy;
     } finally {
@@ -201,7 +201,7 @@ export function createHandler({ config, archive, provider, now = () => new Date(
         checks.observations = observationsReady ? 'pass' : 'fail';
       }
       if (config.NOWCAST_PROVIDER_MODE === 'normalized-upstream') {
-        checks.upstream = await checkUpstreamReadiness(now()) ? 'pass' : 'fail';
+        checks.upstream = await checkUpstreamReadiness() ? 'pass' : 'fail';
       }
       const ready = Object.values(checks).every((status) => status === 'pass');
       response = json({ status: ready ? 'ready' : 'not_ready', checks }, ready ? 200 : 503);
