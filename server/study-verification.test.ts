@@ -441,8 +441,8 @@ describe('prospective study report', () => {
     expect(report.runtimeParametersPreregistered).toBe(false);
     expect(report).toEqual(expect.objectContaining({
       schemaVersion: 3,
-      inputFrameCount: 3,
-      ensembleMembers: 24,
+      inputFrameCount: null,
+      ensembleMembers: null,
     }));
   });
 

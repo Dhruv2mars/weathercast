@@ -1209,7 +1209,11 @@ export class ForecastArchive {
     if (registeredDefinitionSha256 !== study.definition_sha256) {
       throw new Error('Verification study definition checksum is invalid.');
     }
-    const registeredDefinition = parseStoredStudyDefinition(JSON.parse(study.definition_json)).definition;
+    const parsedDefinition = parseStoredStudyDefinition(JSON.parse(study.definition_json));
+    if (!parsedDefinition.runtimeParametersPreregistered) {
+      throw new Error('Legacy verification studies are diagnostic-only and cannot issue new runs.');
+    }
+    const registeredDefinition = parsedDefinition.definition;
     if (input.runs.some(({ run }) => run.inputFrameIds.length !== registeredDefinition.inputFrameCount)) {
       throw new Error('Study runs must use the registered input frame count.');
     }

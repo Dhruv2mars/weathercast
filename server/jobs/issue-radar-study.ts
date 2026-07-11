@@ -17,6 +17,9 @@ const projectRoot = join(import.meta.dir, '..', '..');
 try {
   const study = archive.getVerificationStudy(studyId);
   if (!study) throw new Error('Verification study is not registered.');
+  if (!study.runtime_parameters_preregistered) {
+    throw new Error('Verification study did not preregister runtime parameters and is diagnostic-only.');
+  }
   const frameCount = study.input_frame_count;
   const members = study.ensemble_members;
   const startedAt = new Date();

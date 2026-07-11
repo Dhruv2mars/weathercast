@@ -406,8 +406,12 @@ export function computeVerificationStudyEvidence(input: {
     algorithmVersion: input.definition.algorithmVersion,
     domain: input.definition.domain,
     product: input.definition.product,
-    inputFrameCount: input.definition.inputFrameCount,
-    ensembleMembers: input.definition.ensembleMembers,
+    inputFrameCount: input.runtimeParametersPreregistered === false
+      ? null
+      : input.definition.inputFrameCount,
+    ensembleMembers: input.runtimeParametersPreregistered === false
+      ? null
+      : input.definition.ensembleMembers,
     targetIds: input.targetIds,
     generatedAt: input.asOf.toISOString(),
     evaluationStartsAt: input.definition.startsAt,
