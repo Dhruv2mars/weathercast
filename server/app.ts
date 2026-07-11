@@ -58,6 +58,37 @@ function forecastResponse(envelope: NowcastEnvelope, request: Request, cache: 'H
 export function createHandler({ config, archive, provider, now = () => new Date() }: Dependencies) {
   const limiter = new FixedWindowRateLimiter(config.RATE_LIMIT_PER_MINUTE);
   const inFlight = new Map<string, Promise<NowcastEnvelope>>();
+  let upstreamReadiness: { healthy: boolean; expiresAt: number } | undefined;
+  let upstreamReadinessProbe: Promise<boolean> | undefined;
+
+  async function checkUpstreamReadiness() {
+    if (upstreamReadiness && upstreamReadiness.expiresAt > performance.now()) {
+      return upstreamReadiness.healthy;
+    }
+    if (!upstreamReadinessProbe) {
+      upstreamReadinessProbe = (async () => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), config.READINESS_UPSTREAM_TIMEOUT_MS);
+        try {
+          return await provider.checkHealth(controller.signal) === true;
+        } catch {
+          return false;
+        } finally {
+          clearTimeout(timeout);
+        }
+      })();
+    }
+    try {
+      const healthy = await upstreamReadinessProbe;
+      upstreamReadiness = {
+        healthy,
+        expiresAt: performance.now() + config.READINESS_UPSTREAM_CACHE_SECONDS * 1000,
+      };
+      return healthy;
+    } finally {
+      upstreamReadinessProbe = undefined;
+    }
+  }
 
   async function issueForecast(cell: string, latitude: number, longitude: number, generatedAt: Date) {
     const controller = new AbortController();
@@ -168,6 +199,9 @@ export function createHandler({ config, archive, provider, now = () => new Date(
           }
         }
         checks.observations = observationsReady ? 'pass' : 'fail';
+      }
+      if (config.NOWCAST_PROVIDER_MODE === 'normalized-upstream') {
+        checks.upstream = await checkUpstreamReadiness() ? 'pass' : 'fail';
       }
       const ready = Object.values(checks).every((status) => status === 'pass');
       response = json({ status: ready ? 'ready' : 'not_ready', checks }, ready ? 200 : 503);

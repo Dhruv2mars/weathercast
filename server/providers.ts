@@ -30,6 +30,7 @@ export type ProviderResult = {
 };
 
 export interface ForecastProvider {
+  checkHealth(signal: AbortSignal): Promise<boolean>;
   fetch(location: Coordinates, signal: AbortSignal): Promise<ProviderResult>;
 }
 
@@ -54,6 +55,10 @@ async function getJson(url: string, init: RequestInit) {
 
 export class OpenMeteoEvaluationProvider implements ForecastProvider {
   constructor(private readonly host: string) {}
+
+  async checkHealth(): Promise<boolean> {
+    return true;
+  }
 
   async fetch(location: Coordinates, signal: AbortSignal): Promise<ProviderResult> {
     const params = new URLSearchParams({
@@ -94,7 +99,25 @@ export class OpenMeteoEvaluationProvider implements ForecastProvider {
 }
 
 export class NormalizedHttpProvider implements ForecastProvider {
-  constructor(private readonly url: string, private readonly token: string) {}
+  constructor(
+    private readonly url: string,
+    private readonly healthUrl: string,
+    private readonly token: string,
+  ) {}
+
+  async checkHealth(signal: AbortSignal): Promise<boolean> {
+    const response = await fetch(this.healthUrl, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${this.token}`,
+        'Cache-Control': 'no-store',
+      },
+      redirect: 'error',
+      signal,
+    });
+    return response.ok;
+  }
 
   async fetch(location: Coordinates, signal: AbortSignal): Promise<ProviderResult> {
     const params = new URLSearchParams({

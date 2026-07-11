@@ -24,6 +24,7 @@ Production accepts location only in a POST body, so ordinary access logs do not 
 | `DATABASE_PATH` | Forecast archive path; mount durable storage |
 | `NOWCAST_PROVIDER_MODE` | `normalized-upstream` in production |
 | `NORMALIZED_UPSTREAM_URL` | HTTPS licensed/provider blender endpoint |
+| `NORMALIZED_UPSTREAM_HEALTH_URL` | Same-origin authenticated readiness endpoint for the blender |
 | `NORMALIZED_UPSTREAM_TOKEN` | Server-only bearer credential |
 | `CORS_ORIGIN` | Explicit web-app origin in production |
 | `RATE_LIMIT_PER_MINUTE` | Per gateway-supplied client IP |
@@ -37,10 +38,12 @@ Production accepts location only in a POST body, so ordinary access logs do not 
 | `READINESS_RADAR_DOMAIN` | Regional radar domain; currently validated to `CONUS` |
 | `READINESS_RADAR_PRODUCT` | Radar product; currently validated to `PrecipRate_00.00` |
 | `READINESS_OBSERVATION_SOURCE` | Truth feed; currently validated to `aviation-weather-metar` |
+| `READINESS_UPSTREAM_TIMEOUT_MS` | Health-probe deadline; defaults to `2000` |
+| `READINESS_UPSTREAM_CACHE_SECONDS` | Health-probe result cache; defaults to `15` |
 
 The upstream must return eight chronological 15-minute intervals plus explicit tier, calibration, resolution, and coverage-reason fields. See [the contract](../docs/nowcast-api.md).
 
-`GET /healthz` is process liveness only. `GET /readyz` performs a database write/delete probe. In production it also requires a fresh, gap-free MRMS sequence and the configured number of distinct recently verified METAR stations. The response exposes only pass/fail component names; source timestamps and infrastructure details remain private. A failed check returns `503` so the orchestrator can stop routing traffic.
+`GET /healthz` is process liveness only. `GET /readyz` performs a database write/delete probe. In production it also requires a fresh, gap-free MRMS sequence, the configured number of distinct recently verified METAR stations, and a successful timeout-bounded authenticated upstream health probe. The health URL must share the forecast endpoint origin so the bearer token cannot be redirected to another host. Probe results are briefly cached to prevent orchestrator polling from becoming upstream load. The response exposes only pass/fail component names; source timestamps and infrastructure details remain private. A failed check returns `503` so the orchestrator can stop routing traffic.
 
 ## Verification tracer
 

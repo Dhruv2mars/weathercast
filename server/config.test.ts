@@ -14,6 +14,7 @@ describe('loadConfig', () => {
       NODE_ENV: 'production',
       NOWCAST_PROVIDER_MODE: 'normalized-upstream',
       NORMALIZED_UPSTREAM_URL: 'https://weather.example/v1/point',
+      NORMALIZED_UPSTREAM_HEALTH_URL: 'https://weather.example/healthz',
       NORMALIZED_UPSTREAM_TOKEN: '1234567890123456',
     })).toThrow('explicit CORS_ORIGIN');
 
@@ -21,6 +22,7 @@ describe('loadConfig', () => {
       NODE_ENV: 'production',
       NOWCAST_PROVIDER_MODE: 'normalized-upstream',
       NORMALIZED_UPSTREAM_URL: 'https://weather.example/v1/point',
+      NORMALIZED_UPSTREAM_HEALTH_URL: 'https://weather.example/healthz',
       NORMALIZED_UPSTREAM_TOKEN: '1234567890123456',
       CORS_ORIGIN: 'https://weathercast.app',
       READINESS_REQUIRE_PRECISION_DATA: 'true',
@@ -35,9 +37,19 @@ describe('loadConfig', () => {
       NODE_ENV: 'production',
       NOWCAST_PROVIDER_MODE: 'normalized-upstream',
       NORMALIZED_UPSTREAM_URL: 'https://weather.example/v1/point',
+      NORMALIZED_UPSTREAM_HEALTH_URL: 'https://weather.example/healthz',
       NORMALIZED_UPSTREAM_TOKEN: '1234567890123456',
       CORS_ORIGIN: 'https://weathercast.app',
     })).toThrow('precision readiness');
+    expect(() => loadConfig({
+      NODE_ENV: 'production',
+      NOWCAST_PROVIDER_MODE: 'normalized-upstream',
+      NORMALIZED_UPSTREAM_URL: 'https://weather.example/v1/point',
+      NORMALIZED_UPSTREAM_HEALTH_URL: 'https://health.attacker.example/ready',
+      NORMALIZED_UPSTREAM_TOKEN: '1234567890123456',
+      CORS_ORIGIN: 'https://weathercast.app',
+      READINESS_REQUIRE_PRECISION_DATA: 'true',
+    })).toThrow('same origin');
     expect(() => loadConfig({
       NODE_ENV: 'test',
       READINESS_RADAR_DOMAIN: 'UNKNOWN',
@@ -49,6 +61,7 @@ describe('loadConfig', () => {
       NODE_ENV: 'production',
       NOWCAST_PROVIDER_MODE: 'normalized-upstream',
       NORMALIZED_UPSTREAM_TOKEN: '1234567890123456',
+      NORMALIZED_UPSTREAM_HEALTH_URL: 'https://provider.example/healthz',
       CORS_ORIGIN: 'https://weathercast.app',
       READINESS_REQUIRE_PRECISION_DATA: 'true',
     };
