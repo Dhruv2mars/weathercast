@@ -58,7 +58,7 @@ export class PostgresForecastStore implements ForecastStore {
         id, issued_at, generated_at, valid_until, location_cell, latitude, longitude,
         provider, upstream_run_id, response_json
       ) VALUES (
-        ${input.envelope.forecastId}, ${input.envelope.generatedAt}, ${input.envelope.generatedAt},
+        ${input.envelope.forecastId}, ${input.envelope.issuedAt}, ${input.envelope.generatedAt},
         ${input.envelope.validUntil}, ${input.cell}, ${input.latitude}, ${input.longitude},
         ${input.provider}, ${input.upstreamRunId ?? null}, ${response}::jsonb
       ) ON CONFLICT (id) DO NOTHING

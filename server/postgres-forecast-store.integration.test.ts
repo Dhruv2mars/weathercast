@@ -17,7 +17,7 @@ function envelope(id: string, generatedAt: string): NowcastEnvelope {
     sourceDataTime: '2099-01-01T00:00:00.000Z',
     calibrationStatus: 'uncalibrated',
     coverage: { reason: 'integration-test', spatialResolutionKm: 1 },
-    issuedAt: generatedAt,
+    issuedAt: '2098-12-31T23:59:30.000Z',
     status: 'clear',
     headline: 'No rain expected',
     detail: 'Integration test forecast.',
@@ -55,6 +55,10 @@ postgresTest('PostgresForecastStore atomically preserves a race winner and rejec
       provider: 'integration-test',
     })).toEqual(first);
     expect(await store.findFresh(cell, new Date('2099-01-01T00:10:00.000Z'))).toEqual(first);
+    const issuedRows = await sql<Array<{ issued_at: Date }>>`
+      SELECT issued_at FROM forecast_issues WHERE id = ${id}
+    `;
+    expect(issuedRows[0]?.issued_at.toISOString()).toBe(first.issuedAt);
     let mutationError = '';
     try {
       await sql`UPDATE forecast_issues SET provider = 'mutated' WHERE id = ${id}`;
