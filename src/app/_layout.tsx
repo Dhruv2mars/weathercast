@@ -46,6 +46,7 @@ export default function RootLayout() {
           <Stack.Screen name="settings" options={{ title: 'Settings', presentation: 'formSheet', sheetGrabberVisible: true }} />
           <Stack.Screen name="privacy" options={{ title: 'Privacy' }} />
           <Stack.Screen name="terms" options={{ title: 'Terms' }} />
+          <Stack.Screen name="support" options={{ title: 'Support' }} />
           <Stack.Screen name="+not-found" options={{ title: 'Not found' }} />
         </Stack>
       </ThemeProvider>
