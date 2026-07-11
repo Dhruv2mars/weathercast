@@ -16,12 +16,12 @@ export default function PrivacyScreen() {
         <Text selectable style={bodyStyle}>Saved places, alert preferences, onboarding state, and the latest cached forecast are stored on this device. Delete local data from Settings or uninstall the app to remove them.</Text>
       </Section>
       <Section title="Weather providers">
-        <Text selectable style={bodyStyle}>The default build sends selected coordinates and standard network metadata to Open-Meteo to fulfill forecast requests. A production deployment must publish the terms of every configured provider.</Text>
+        <Text selectable style={bodyStyle}>The app sends selected coordinates and standard network metadata to the configured Weathercast service and its weather-data providers only to fulfill forecast and radar requests.</Text>
       </Section>
       <Section title="No account or ads">
         <Text selectable style={bodyStyle}>Weathercast does not create an account, access contacts, use an advertising identifier, or sell personal data in this build.</Text>
       </Section>
-      <Text selectable style={{ color: theme.secondaryText, fontSize: 13 }}>Effective 10 July 2026 · Pre-release policy</Text>
+      <Text selectable style={{ color: theme.secondaryText, fontSize: 13 }}>Effective 11 July 2026</Text>
     </Screen>
   );
 }

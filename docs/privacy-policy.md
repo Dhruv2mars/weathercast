@@ -6,6 +6,6 @@ Weathercast uses a location you choose or foreground device location to retrieve
 
 Saved places, alert preferences, onboarding state, and the latest cached forecast are stored locally on the device. Local rain alerts are scheduled on the device. Deleting the app removes this local data. You can revoke location and notification access at any time in system settings.
 
-The default build retrieves forecast data from Open-Meteo. Its service may receive the coordinates, IP address, and standard network metadata required to fulfill the request. Production distributors must review and publish provider-specific terms and a public privacy-policy URL before store submission.
+The release app sends selected coordinates, IP address, and standard network metadata to the configured Weathercast service and its weather-data providers only to fulfill forecast and radar requests. Regional providers and coverage may change; the app identifies the active data tier and source where applicable.
 
-Before public distribution, the operator must add a tested support contact, legal identity, and public policy URL. Until then, project questions can be filed through the repository issue tracker. Weathercast has no account or server-side user profile in this build, so deleting local data or uninstalling removes app-managed user state.
+Support and problem reports are available through the support link in Settings. Weathercast has no account or server-side user profile in this release, so deleting local data or uninstalling removes app-managed user state.

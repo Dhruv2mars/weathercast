@@ -45,6 +45,7 @@ export default function RootLayout() {
           <Stack.Screen name="place-search" options={{ title: 'Choose a place', presentation: 'modal' }} />
           <Stack.Screen name="settings" options={{ title: 'Settings', presentation: 'formSheet', sheetGrabberVisible: true }} />
           <Stack.Screen name="privacy" options={{ title: 'Privacy' }} />
+          <Stack.Screen name="terms" options={{ title: 'Terms' }} />
           <Stack.Screen name="+not-found" options={{ title: 'Not found' }} />
         </Stack>
       </ThemeProvider>
