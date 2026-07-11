@@ -29,8 +29,15 @@ Production accepts location only in a POST body, so ordinary access logs do not 
 | `RATE_LIMIT_PER_MINUTE` | Per gateway-supplied client IP |
 | `FORECAST_CACHE_SECONDS` | Immutable issue reuse window |
 | `UPSTREAM_TIMEOUT_MS` | Source deadline |
+| `READINESS_REQUIRE_PRECISION_DATA` | Must be `true` in production; gates readiness on local precision inputs |
+| `READINESS_RADAR_MAX_AGE_SECONDS` | Maximum age of the newest contiguous MRMS sequence; defaults to `600` |
+| `READINESS_OBSERVATION_MAX_AGE_SECONDS` | Maximum age of verified METAR truth; defaults to `7200` |
+| `READINESS_MIN_RADAR_FRAMES` | Required contiguous fresh MRMS frames; defaults to `4` |
+| `READINESS_MIN_OBSERVATION_STATIONS` | Required distinct fresh verified METAR stations; defaults to `10` |
 
 The upstream must return eight chronological 15-minute intervals plus explicit tier, calibration, resolution, and coverage-reason fields. See [the contract](../docs/nowcast-api.md).
+
+`GET /healthz` is process liveness only. `GET /readyz` performs a database write/delete probe. In production it also requires a fresh, gap-free MRMS sequence and the configured number of distinct recently verified METAR stations. The response exposes only pass/fail component names; source timestamps and infrastructure details remain private. A failed check returns `503` so the orchestrator can stop routing traffic.
 
 ## Verification tracer
 
