@@ -28,7 +28,17 @@
     }
   },
   "submit": {
+    "internal": {
+      "android": {
+        "track": "internal",
+        "releaseStatus": "completed"
+      }
+    },
     "production": {
+      "android": {
+        "track": "production",
+        "releaseStatus": "draft"
+      },
       "ios": {
         "metadataPath": "./store.config.json"
       }

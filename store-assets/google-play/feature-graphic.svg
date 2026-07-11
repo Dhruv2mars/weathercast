@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
+  <defs>
+    <linearGradient id="sky" x1="96" y1="20" x2="934" y2="500" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1768E5"/>
+      <stop offset="1" stop-color="#07101D"/>
+    </linearGradient>
+    <linearGradient id="rain" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#BFE8FF" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#BFE8FF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="500" fill="url(#sky)"/>
+  <circle cx="830" cy="94" r="270" fill="#238BFF" opacity=".14"/>
+  <circle cx="902" cy="392" r="220" fill="#35B7FF" opacity=".08"/>
+  <g opacity=".62" stroke="url(#rain)" stroke-width="5" stroke-linecap="round">
+    <path d="M706 188l-38 88"/><path d="M768 164l-49 114"/><path d="M835 177l-43 100"/>
+    <path d="M900 151l-55 128"/><path d="M960 183l-42 98"/>
+  </g>
+  <g transform="translate(700 72)">
+    <path fill="#FFFFFF" fill-rule="evenodd" d="M128 0C57 0 0 57 0 127c0 86 94 157 119 174 5 4 13 4 19 0 24-17 118-88 118-174C256 57 199 0 128 0Zm0 55c-42 0-76 33-76 74s34 74 76 74 76-33 76-74-34-74-76-74Z"/>
+    <path fill="#FFFFFF" d="M128 71c-18 27-33 44-33 65 0 18 15 32 33 32s33-14 33-32c0-21-15-38-33-65Z"/>
+  </g>
+  <text x="72" y="193" fill="#FFFFFF" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="76" font-weight="760" letter-spacing="-2">Rain, timed.</text>
+  <text x="76" y="257" fill="#D6E8FF" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="30" font-weight="560">Know when rain reaches you.</text>
+  <g transform="translate(76 324)">
+    <rect width="460" height="82" rx="41" fill="#FFFFFF" opacity=".12"/>
+    <circle cx="45" cy="41" r="11" fill="#BFE8FF"/>
+    <path d="M78 41h335" stroke="#FFFFFF" stroke-opacity=".35" stroke-width="8" stroke-linecap="round"/>
+    <path d="M78 41h186" stroke="#BFE8FF" stroke-width="8" stroke-linecap="round"/>
+    <text x="294" y="51" fill="#FFFFFF" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="26" font-weight="700">+120 min</text>
+  </g>
+</svg>
