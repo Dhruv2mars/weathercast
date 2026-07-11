@@ -28,6 +28,7 @@
 - [ ] Competitor claims use a lawful preregistered paired comparison; own-model evidence is not relabeled as superiority
 - [ ] Provider outages degrade to a named lower coverage tier
 - [ ] `/readyz` write probe, contiguous-radar gate, and distinct-station truth gate remove unhealthy instances from traffic
+- [ ] Authenticated same-origin forecast-upstream health probe removes timed-out or failed providers from traffic
 
 ## Store and legal gates
 
