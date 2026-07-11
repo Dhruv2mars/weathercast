@@ -1,0 +1,17 @@
+{
+  "id": "mrms-metar-conus-calibration-2026-v1",
+  "title": "Leakage-safe CONUS MRMS rain probability calibration",
+  "algorithmVersion": "translation-ensemble-v1",
+  "domain": "CONUS",
+  "product": "PrecipRate_00.00",
+  "method": "isotonic-pav-v1",
+  "trainingStudyIds": ["mrms-metar-conus-calibration-training-2026-v1"],
+  "validationStudyIds": ["mrms-metar-conus-calibration-validation-2026-v1"],
+  "evaluationStudyId": "mrms-metar-conus-evaluation-2026-v1",
+  "horizonsMinutes": [0, 15, 30, 45, 60, 75, 90, 105],
+  "minimumSamplesPerHorizon": 100,
+  "maximumValidationBrierDegradation": 0,
+  "minimumAggregateValidationBrierImprovement": 0.001,
+  "maximumHoldoutBrierDegradation": 0,
+  "minimumAggregateHoldoutBrierImprovement": 0.001
+}

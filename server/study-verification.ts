@@ -16,6 +16,18 @@ export type StudyVerificationObservation = {
   rainObserved: boolean;
 };
 
+export type StudyVerificationPair = {
+  studyId: string;
+  runId: string;
+  targetId: string;
+  horizonMinutes: number;
+  probability: number;
+  observedRain: boolean;
+  observedAt: string;
+  rawCounterfactualProbability?: number;
+  calibrationArtifactId?: string;
+};
+
 type ReliabilityAccumulator = {
   count: number;
   probabilitySum: number;
@@ -83,7 +95,7 @@ function findNearestObservation(
 }
 
 /** Builds a deterministic, preregistration-bound report without mutating evidence. */
-export function computeVerificationStudyReport(input: {
+export function computeVerificationStudyEvidence(input: {
   definition: StudyDefinition;
   definitionSha256: string;
   registeredAt: string;
@@ -92,11 +104,27 @@ export function computeVerificationStudyReport(input: {
   observations: StudyVerificationObservation[];
   asOf: Date;
   reportPolicyPreregistered?: boolean;
+  calibrationEvaluationPolicy?: {
+    artifactId: string;
+    artifactSha256: string;
+    maximumHoldoutBrierDegradation: number;
+    minimumAggregateHoldoutBrierImprovement: number;
+  };
 }) {
   const asOf = input.asOf.getTime();
   const startsAt = new Date(input.definition.startsAt).getTime();
   const endsAt = new Date(input.definition.endsAt).getTime();
   if (!Number.isFinite(asOf)) throw new Error('Study report cutoff is invalid.');
+  if (input.calibrationEvaluationPolicy && (
+    !/^[a-f0-9]{24}$/.test(input.calibrationEvaluationPolicy.artifactId)
+    || !/^[a-f0-9]{64}$/.test(input.calibrationEvaluationPolicy.artifactSha256)
+    || !Number.isFinite(input.calibrationEvaluationPolicy.maximumHoldoutBrierDegradation)
+    || input.calibrationEvaluationPolicy.maximumHoldoutBrierDegradation < 0
+    || input.calibrationEvaluationPolicy.maximumHoldoutBrierDegradation > 0.1
+    || !Number.isFinite(input.calibrationEvaluationPolicy.minimumAggregateHoldoutBrierImprovement)
+    || input.calibrationEvaluationPolicy.minimumAggregateHoldoutBrierImprovement < 0
+    || input.calibrationEvaluationPolicy.minimumAggregateHoldoutBrierImprovement > 0.1
+  )) throw new Error('Calibration holdout policy is invalid.');
   if (
     input.targetIds.length !== input.definition.stationIds.length
     || input.targetIds.some((targetId, index) => targetId !== input.definition.stationIds[index])
@@ -161,6 +189,7 @@ export function computeVerificationStudyReport(input: {
     {
       forecastCount: 0,
       aggregate: { count: 0, probabilitySum: 0, observedSum: 0, brierSum: 0 },
+      rawCounterfactual: { count: 0, probabilitySum: 0, observedSum: 0, brierSum: 0 },
       bins: Array.from({ length: RELIABILITY_BIN_COUNT }, (): ReliabilityAccumulator => ({
         count: 0,
         probabilitySum: 0,
@@ -169,16 +198,31 @@ export function computeVerificationStudyReport(input: {
       })),
     },
   ]));
+  const pairs: StudyVerificationPair[] = [];
+  const calibrationArtifactIds = new Set<string>();
+  const calibrationArtifactSha256s = new Set<string>();
+  let provisionalRunCount = 0;
+  let uncalibratedRunCount = 0;
 
   for (const run of eligibleRuns) {
     const nowcast = radarNowcastSchema.parse(run.response);
+    if (nowcast.calibrationStatus === 'provisional') {
+      provisionalRunCount += 1;
+      calibrationArtifactIds.add(nowcast.calibration!.artifactId);
+      calibrationArtifactSha256s.add(nowcast.calibration!.artifactSha256);
+    } else {
+      uncalibratedRunCount += 1;
+    }
     const issuedAt = new Date(run.issuedAt).getTime();
     const sourceDataTime = new Date(nowcast.sourceDataTime).getTime();
     if (!Number.isFinite(issuedAt) || !Number.isFinite(sourceDataTime)) {
       throw new Error('Study run time is invalid.');
     }
     for (const horizonMinutes of input.definition.horizonsMinutes) {
-      const interval = nowcast.intervals.find((candidate) => candidate.leadStartMinutes === horizonMinutes);
+      const intervalIndex = nowcast.intervals.findIndex(
+        (candidate) => candidate.leadStartMinutes === horizonMinutes,
+      );
+      const interval = nowcast.intervals[intervalIndex];
       if (!interval || interval.status !== 'valid' || interval.probability === null) continue;
       const intervalStart = sourceDataTime + interval.leadStartMinutes * 60_000;
       const intervalEnd = sourceDataTime + interval.leadEndMinutes * 60_000;
@@ -195,6 +239,19 @@ export function computeVerificationStudyReport(input: {
         midpoint,
       );
       if (!observation) continue;
+      const rawCounterfactualProbability = nowcast.calibration?.rawProbabilities[intervalIndex];
+      pairs.push({
+        studyId: input.definition.id,
+        runId: run.runId,
+        targetId: run.targetId,
+        horizonMinutes,
+        probability: interval.probability,
+        observedRain: observation.rainObserved,
+        observedAt: observation.observedAt,
+        ...(rawCounterfactualProbability !== undefined && rawCounterfactualProbability !== null
+          ? { rawCounterfactualProbability, calibrationArtifactId: nowcast.calibration!.artifactId }
+          : {}),
+      });
       const probability = interval.probability / 100;
       const observed = observation.rainObserved ? 1 : 0;
       const brier = (probability - observed) ** 2;
@@ -205,17 +262,27 @@ export function computeVerificationStudyReport(input: {
         target.observedSum += observed;
         target.brierSum += brier;
       }
+      if (rawCounterfactualProbability !== undefined && rawCounterfactualProbability !== null) {
+        const rawProbability = rawCounterfactualProbability / 100;
+        accumulator.rawCounterfactual.count += 1;
+        accumulator.rawCounterfactual.probabilitySum += rawProbability;
+        accumulator.rawCounterfactual.observedSum += observed;
+        accumulator.rawCounterfactual.brierSum += (rawProbability - observed) ** 2;
+      }
     }
   }
 
   const horizons = input.definition.horizonsMinutes.map((horizonMinutes) => {
     const accumulator = horizonAccumulators.get(horizonMinutes)!;
+    const rawCounterfactual = finishAccumulator(accumulator.rawCounterfactual);
     return {
       horizonMinutes,
       forecastCount: accumulator.forecastCount,
       observationCount: accumulator.aggregate.count,
       missingObservationCount: accumulator.forecastCount - accumulator.aggregate.count,
       ...finishAccumulator(accumulator.aggregate),
+      uncalibratedCounterfactualCount: rawCounterfactual.count,
+      uncalibratedCounterfactualBrierScore: rawCounterfactual.brierScore,
       reliabilityBins: accumulator.bins.map((bin, index) => ({
         lowerProbabilityInclusive: index / RELIABILITY_BIN_COUNT,
         upperProbabilityExclusive: index === RELIABILITY_BIN_COUNT - 1
@@ -237,9 +304,96 @@ export function computeVerificationStudyReport(input: {
       gateFailures.push(`sample_gate_not_met:${horizon.horizonMinutes}`);
     }
   }
+  const calibrationEvidenceStatus = provisionalRunCount === 0
+    ? 'uncalibrated_baseline' as const
+    : uncalibratedRunCount === 0
+      && calibrationArtifactIds.size === 1
+      && calibrationArtifactSha256s.size === 1
+      ? 'provisional_holdout' as const
+      : 'mixed_or_inconsistent' as const;
+  const precisionPromotionGateFailures: string[] = [];
+  let calibrationHoldout: {
+    observationCount: number;
+    rawBrierScore: number;
+    calibratedBrierScore: number;
+    brierImprovement: number;
+  } | null = null;
+  if (calibrationEvidenceStatus === 'uncalibrated_baseline') {
+    if (input.calibrationEvaluationPolicy) {
+      precisionPromotionGateFailures.push('independent_calibration_holdout_has_no_provisional_runs');
+    } else {
+      precisionPromotionGateFailures.push(
+        'algorithm_is_uncalibrated_shadow_baseline',
+        'independent_calibration_holdout_not_registered',
+      );
+    }
+  } else if (calibrationEvidenceStatus === 'mixed_or_inconsistent') {
+    precisionPromotionGateFailures.push('calibration_provenance_is_mixed_or_inconsistent');
+  } else {
+    const policy = input.calibrationEvaluationPolicy;
+    if (!policy) {
+      precisionPromotionGateFailures.push('calibration_evaluation_policy_not_preregistered');
+    } else if (
+      !calibrationArtifactIds.has(policy.artifactId)
+      || !calibrationArtifactSha256s.has(policy.artifactSha256)
+    ) {
+      precisionPromotionGateFailures.push('calibration_artifact_does_not_match_preregistered_holdout');
+    }
+    if (gateFailures.length > 0) {
+      precisionPromotionGateFailures.push('publication_evidence_gates_not_met');
+    }
+    let counterfactualComplete = true;
+    for (const horizon of horizons) {
+      if (horizon.uncalibratedCounterfactualCount !== horizon.observationCount) {
+        counterfactualComplete = false;
+        precisionPromotionGateFailures.push(`raw_counterfactual_missing:${horizon.horizonMinutes}`);
+      } else if (
+        policy
+      ) {
+        const horizonPairs = pairs.filter((pair) => pair.horizonMinutes === horizon.horizonMinutes);
+        const calibratedTotal = horizonPairs.reduce((sum, pair) => (
+          sum + (pair.probability / 100 - Number(pair.observedRain)) ** 2
+        ), 0);
+        const rawTotal = horizonPairs.reduce((sum, pair) => (
+          sum + (pair.rawCounterfactualProbability! / 100 - Number(pair.observedRain)) ** 2
+        ), 0);
+        if (
+          calibratedTotal - rawTotal
+          > policy.maximumHoldoutBrierDegradation * horizonPairs.length + Number.EPSILON
+        ) precisionPromotionGateFailures.push(`holdout_brier_degraded:${horizon.horizonMinutes}`);
+      }
+    }
+    const paired = pairs.filter((pair) => pair.rawCounterfactualProbability !== undefined);
+    if (counterfactualComplete && paired.length > 0) {
+      const rawBrierExact = paired.reduce((sum, pair) => (
+        sum + (pair.rawCounterfactualProbability! / 100 - Number(pair.observedRain)) ** 2
+      ), 0) / paired.length;
+      const calibratedBrierExact = paired.reduce((sum, pair) => (
+        sum + (pair.probability / 100 - Number(pair.observedRain)) ** 2
+      ), 0) / paired.length;
+      const rawBrierScore = round(rawBrierExact);
+      const calibratedBrierScore = round(calibratedBrierExact);
+      const brierImprovement = round(rawBrierExact - calibratedBrierExact);
+      calibrationHoldout = {
+        observationCount: paired.length,
+        rawBrierScore,
+        calibratedBrierScore,
+        brierImprovement,
+      };
+      if (
+        policy
+        && rawBrierExact - calibratedBrierExact + Number.EPSILON
+          < policy.minimumAggregateHoldoutBrierImprovement
+      ) {
+        precisionPromotionGateFailures.push('aggregate_holdout_brier_improvement_below_threshold');
+      }
+    } else if (counterfactualComplete) {
+      precisionPromotionGateFailures.push('calibration_holdout_has_no_paired_observations');
+    }
+  }
 
-  return {
-    schemaVersion: 1 as const,
+  const report = {
+    schemaVersion: 2 as const,
     studyId: input.definition.id,
     studyTitle: input.definition.title,
     definitionSha256: input.definitionSha256,
@@ -265,14 +419,25 @@ export function computeVerificationStudyReport(input: {
     validTimePolicy: input.definition.validTimePolicy,
     reportPolicyPreregistered: input.reportPolicyPreregistered ?? true,
     primaryMetric: input.definition.primaryMetric,
+    calibrationEvidence: {
+      status: calibrationEvidenceStatus,
+      artifactIds: [...calibrationArtifactIds].sort(),
+      provisionalRunCount,
+      uncalibratedRunCount,
+    },
+    calibrationHoldout,
     claimScope: 'own-model point rain-occurrence skill only; no competitor superiority claim' as const,
     eligibleForPublication: gateFailures.length === 0,
     gateFailures,
-    eligibleForPrecisionPromotion: false as const,
-    precisionPromotionGateFailures: [
-      'algorithm_is_uncalibrated_shadow_baseline',
-      'independent_calibration_holdout_not_registered',
-    ] as const,
+    eligibleForPrecisionPromotion: precisionPromotionGateFailures.length === 0,
+    precisionPromotionScope:
+      'calibration evidence gate only; production rights and operations remain separate release gates' as const,
+    precisionPromotionGateFailures,
     horizons,
   };
+  return { report, pairs };
+}
+
+export function computeVerificationStudyReport(input: Parameters<typeof computeVerificationStudyEvidence>[0]) {
+  return computeVerificationStudyEvidence(input).report;
 }

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 
 import { ForecastArchive } from './archive';
 import type { RadarNowcast } from './radar-nowcast-contract';
+import { createRadarEnsembleSeed } from './radar-nowcast-runner';
 import { studyDefinitionSchema } from './study-contract';
 
 function definition() {
@@ -29,7 +30,11 @@ function definition() {
   });
 }
 
-function nowcast(target: { latitude: number; longitude: number }, sourceDataTime: string): RadarNowcast {
+function nowcast(
+  target: { latitude: number; longitude: number },
+  sourceDataTime: string,
+  inputSha256: string[],
+): RadarNowcast {
   return {
     schemaVersion: 1,
     algorithmVersion: 'translation-ensemble-v1',
@@ -46,7 +51,7 @@ function nowcast(target: { latitude: number; longitude: number }, sourceDataTime
       signal: 0.8,
     },
     ensembleMembers: 24,
-    seed: '0123456789abcdef',
+    seed: createRadarEnsembleSeed({ ...target, inputSha256 }),
     intervals: Array.from({ length: 8 }, (_, index) => ({
       leadStartMinutes: index * 15,
       leadEndMinutes: (index + 1) * 15,
@@ -56,7 +61,7 @@ function nowcast(target: { latitude: number; longitude: number }, sourceDataTime
       rainRateMmPerHour: 1,
     })),
     location: target,
-    inputSha256: ['a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64)],
+    inputSha256,
     coverage: {
       tier: 'shadow',
       minimumTileFraction: 1,
@@ -155,7 +160,7 @@ describe('immutable prospective study registry', () => {
         registeredAt: '2026-07-10T23:00:00.000Z',
         targets,
       });
-      const inputFrameIds = ['00:08', '00:10', '00:12'].map((minute, index) => {
+      const inputs = ['00:08', '00:10', '00:12'].map((minute, index) => {
         const observedAt = `2026-07-11T${minute}:00.000Z`;
         const asset = archive.saveSourceAsset({
           provider: 'noaa-mrms',
@@ -164,15 +169,17 @@ describe('immutable prospective study registry', () => {
           mediaType: 'application/gzip',
           bytes: new TextEncoder().encode(`frame-${index}`),
         });
-        return archive.saveRadarFrame({
+        return { id: archive.saveRadarFrame({
           domain: 'CONUS',
           product: 'PrecipRate_00.00',
           observedAt,
           retrievedAt: '2026-07-11T00:05:00.000Z',
           objectKey: `frame-${index}`,
           sourceAssetId: asset.id,
-        });
+        }), sha256: asset.sha256 };
       });
+      const inputFrameIds = inputs.map((input) => input.id);
+      const inputSha256 = inputs.map((input) => input.sha256);
       const issuedAt = '2026-07-11T00:15:30.000Z';
       const scheduledAt = '2026-07-11T00:15:00.000Z';
       const runs = targets.map((target) => ({
@@ -185,7 +192,7 @@ describe('immutable prospective study registry', () => {
           product: 'PrecipRate_00.00',
           algorithmVersion: 'translation-ensemble-v1',
           inputFrameIds,
-          response: nowcast(target, '2026-07-11T00:12:00.000Z'),
+          response: nowcast(target, '2026-07-11T00:12:00.000Z', inputSha256),
         },
       }));
       const first = archive.saveVerificationStudyRadarBatch({

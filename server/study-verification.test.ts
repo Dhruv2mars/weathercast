@@ -2,7 +2,11 @@ import { describe, expect, test } from 'bun:test';
 
 import type { RadarNowcast } from './radar-nowcast-contract';
 import { studyDefinitionSchema } from './study-contract';
-import { computeVerificationStudyReport, type StudyVerificationRun } from './study-verification';
+import {
+  computeVerificationStudyEvidence,
+  computeVerificationStudyReport,
+  type StudyVerificationRun,
+} from './study-verification';
 
 function definition(overrides: Record<string, unknown> = {}) {
   return studyDefinitionSchema.parse({
@@ -26,7 +30,7 @@ function definition(overrides: Record<string, unknown> = {}) {
   });
 }
 
-function nowcast(sourceDataTime: string, probabilities = [80, 20]) {
+function nowcast(sourceDataTime: string, probabilities = [80, 20]): RadarNowcast {
   return {
     schemaVersion: 1,
     algorithmVersion: 'translation-ensemble-v1',
@@ -63,7 +67,251 @@ function nowcast(sourceDataTime: string, probabilities = [80, 20]) {
   } satisfies RadarNowcast;
 }
 
+function provisionalNowcast(sourceDataTime: string): RadarNowcast {
+  const response = nowcast(sourceDataTime, [40]);
+  response.calibrationStatus = 'provisional';
+  response.calibration = {
+    artifactId: 'c'.repeat(24),
+    artifactSha256: 'd'.repeat(64),
+    method: 'isotonic-pav-v1',
+    rawProbabilities: [80, 20, 0, 0, 0, 0, 0, 0],
+  };
+  return response;
+}
+
 describe('prospective study report', () => {
+  test('exposes the exact scored pairs without changing report accounting', () => {
+    const study = definition({ horizonsMinutes: [0] });
+    const evidence = computeVerificationStudyEvidence({
+      definition: study,
+      definitionSha256: '9'.repeat(64),
+      registeredAt: '2026-07-10T23:00:00.000Z',
+      targetIds: ['KHSV'],
+      runs: [{
+        runId: 'run-for-calibration',
+        targetId: 'KHSV',
+        scheduledAt: study.startsAt,
+        issuedAt: '2026-07-11T00:02:00.000Z',
+        response: nowcast(study.startsAt, [80]),
+      }],
+      observations: [{
+        id: 'selected-observation',
+        targetId: 'KHSV',
+        observedAt: '2026-07-11T00:07:00.000Z',
+        rainObserved: true,
+      }],
+      asOf: new Date('2026-07-11T00:15:00.000Z'),
+    });
+    expect(evidence.report.horizons[0]!.observationCount).toBe(1);
+    expect(evidence.pairs).toEqual([{
+      studyId: study.id,
+      runId: 'run-for-calibration',
+      targetId: 'KHSV',
+      horizonMinutes: 0,
+      probability: 80,
+      observedRain: true,
+      observedAt: '2026-07-11T00:07:00.000Z',
+    }]);
+  });
+
+  test('scores archived raw counterfactual probabilities beside provisional calibration', () => {
+    const study = definition({ horizonsMinutes: [0] });
+    const response = provisionalNowcast(study.startsAt);
+    const report = computeVerificationStudyReport({
+      definition: study,
+      definitionSha256: '8'.repeat(64),
+      registeredAt: '2026-07-10T23:00:00.000Z',
+      targetIds: ['KHSV'],
+      runs: [{
+        runId: 'provisional-run',
+        targetId: 'KHSV',
+        scheduledAt: study.startsAt,
+        issuedAt: '2026-07-11T00:01:00.000Z',
+        response,
+      }],
+      observations: [{
+        id: 'dry-observation',
+        targetId: 'KHSV',
+        observedAt: '2026-07-11T00:07:00.000Z',
+        rainObserved: false,
+      }],
+      asOf: new Date('2026-07-11T00:15:00.000Z'),
+    });
+    expect(report.calibrationEvidence).toEqual({
+      status: 'provisional_holdout',
+      artifactIds: ['c'.repeat(24)],
+      provisionalRunCount: 1,
+      uncalibratedRunCount: 0,
+    });
+    expect(report.horizons[0]).toEqual(expect.objectContaining({
+      brierScore: 0.16,
+      uncalibratedCounterfactualCount: 1,
+      uncalibratedCounterfactualBrierScore: 0.64,
+    }));
+  });
+
+  test('opens model promotion only after a preregistered calibration holdout improves paired Brier', () => {
+    const study = definition({ horizonsMinutes: [0] });
+    const runs = Array.from({ length: 7 * 24 * 4 }, (_, index): StudyVerificationRun => {
+      const scheduledAt = Date.parse(study.startsAt) + index * 15 * 60_000;
+      return {
+        runId: `calibrated-run-${index}`,
+        targetId: 'KHSV',
+        scheduledAt: new Date(scheduledAt).toISOString(),
+        issuedAt: new Date(scheduledAt + 60_000).toISOString(),
+        response: provisionalNowcast(new Date(scheduledAt).toISOString()),
+      };
+    });
+    const observations = runs.map((run, index) => ({
+      id: `holdout-observation-${index}`,
+      targetId: 'KHSV',
+      observedAt: new Date(Date.parse(run.scheduledAt) + 7 * 60_000).toISOString(),
+      rainObserved: index % 5 < 2,
+    }));
+    const report = computeVerificationStudyReport({
+      definition: study,
+      definitionSha256: '7'.repeat(64),
+      registeredAt: '2026-07-10T23:00:00.000Z',
+      targetIds: ['KHSV'],
+      runs,
+      observations,
+      asOf: new Date(study.endsAt),
+      calibrationEvaluationPolicy: {
+        artifactId: 'c'.repeat(24),
+        artifactSha256: 'd'.repeat(64),
+        maximumHoldoutBrierDegradation: 0,
+        minimumAggregateHoldoutBrierImprovement: 0.001,
+      },
+    });
+    expect(report.eligibleForPublication).toBe(true);
+    expect(report.eligibleForPrecisionPromotion).toBe(true);
+    expect(report.precisionPromotionGateFailures).toEqual([]);
+    expect(report.calibrationHoldout).toEqual({
+      observationCount: 672,
+      rawBrierScore: 0.398929,
+      calibratedBrierScore: 0.240357,
+      brierImprovement: 0.158571,
+    });
+  });
+
+  test('rejects malformed holdout policy instead of weakening promotion gates', () => {
+    const study = definition({ horizonsMinutes: [0] });
+    expect(() => computeVerificationStudyReport({
+      definition: study,
+      definitionSha256: '6'.repeat(64),
+      registeredAt: '2026-07-10T23:00:00.000Z',
+      targetIds: ['KHSV'],
+      runs: [],
+      observations: [],
+      asOf: new Date(study.startsAt),
+      calibrationEvaluationPolicy: {
+        artifactId: 'c'.repeat(24),
+        artifactSha256: 'd'.repeat(64),
+        maximumHoldoutBrierDegradation: -1,
+        minimumAggregateHoldoutBrierImprovement: 0.001,
+      },
+    })).toThrow('Calibration holdout policy is invalid');
+  });
+
+  test('reports a registered holdout with no runs as not started, not unregistered', () => {
+    const study = definition({ horizonsMinutes: [0] });
+    const report = computeVerificationStudyReport({
+      definition: study,
+      definitionSha256: '5'.repeat(64),
+      registeredAt: '2026-07-10T23:00:00.000Z',
+      targetIds: ['KHSV'],
+      runs: [],
+      observations: [],
+      asOf: new Date(study.startsAt),
+      calibrationEvaluationPolicy: {
+        artifactId: 'c'.repeat(24),
+        artifactSha256: 'd'.repeat(64),
+        maximumHoldoutBrierDegradation: 0,
+        minimumAggregateHoldoutBrierImprovement: 0.001,
+      },
+    });
+    expect(report.precisionPromotionGateFailures)
+      .toContain('independent_calibration_holdout_has_no_provisional_runs');
+    expect(report.precisionPromotionGateFailures)
+      .not.toContain('independent_calibration_holdout_not_registered');
+  });
+
+  test('fails closed across inconsistent calibration holdout evidence', () => {
+    const study = definition({ horizonsMinutes: [0] });
+    const policy = {
+      artifactId: 'c'.repeat(24),
+      artifactSha256: 'd'.repeat(64),
+      maximumHoldoutBrierDegradation: 0,
+      minimumAggregateHoldoutBrierImprovement: 0.001,
+    };
+    const provisionalRun: StudyVerificationRun = {
+      runId: 'provisional-gate-run',
+      targetId: 'KHSV',
+      scheduledAt: study.startsAt,
+      issuedAt: '2026-07-11T00:01:00.000Z',
+      response: provisionalNowcast(study.startsAt),
+    };
+    const observation = {
+      id: 'gate-observation',
+      targetId: 'KHSV',
+      observedAt: '2026-07-11T00:07:00.000Z',
+      rainObserved: false,
+    };
+    const report = (
+      runs: StudyVerificationRun[],
+      observations = [observation],
+      calibrationEvaluationPolicy?: typeof policy,
+    ) => computeVerificationStudyReport({
+      definition: study,
+      definitionSha256: '4'.repeat(64),
+      registeredAt: '2026-07-10T23:00:00.000Z',
+      targetIds: ['KHSV'],
+      runs,
+      observations,
+      asOf: new Date('2026-07-11T00:30:00.000Z'),
+      calibrationEvaluationPolicy,
+    });
+
+    expect(report([provisionalRun]).precisionPromotionGateFailures)
+      .toContain('calibration_evaluation_policy_not_preregistered');
+    expect(report([provisionalRun], [observation], {
+      ...policy,
+      artifactId: 'e'.repeat(24),
+    }).precisionPromotionGateFailures)
+      .toContain('calibration_artifact_does_not_match_preregistered_holdout');
+    expect(report([provisionalRun], [], policy).precisionPromotionGateFailures)
+      .toContain('calibration_holdout_has_no_paired_observations');
+
+    const degraded = provisionalNowcast(study.startsAt);
+    const degradedInterval = degraded.intervals[0]!;
+    if (degradedInterval.status !== 'valid') throw new Error('Test nowcast interval must be valid.');
+    degraded.intervals[0] = { ...degradedInterval, probability: 90 };
+    degraded.calibration!.rawProbabilities[0] = 20;
+    const degradedFailures = report([{ ...provisionalRun, response: degraded }], [observation], policy)
+      .precisionPromotionGateFailures;
+    expect(degradedFailures).toContain('holdout_brier_degraded:0');
+    expect(degradedFailures).toContain('aggregate_holdout_brier_improvement_below_threshold');
+
+    const secondScheduledAt = '2026-07-11T00:15:00.000Z';
+    const mixed = report([
+      provisionalRun,
+      {
+        runId: 'uncalibrated-gate-run',
+        targetId: 'KHSV',
+        scheduledAt: secondScheduledAt,
+        issuedAt: '2026-07-11T00:16:00.000Z',
+        response: nowcast(secondScheduledAt),
+      },
+    ], [observation, {
+      id: 'second-gate-observation',
+      targetId: 'KHSV',
+      observedAt: '2026-07-11T00:22:00.000Z',
+      rainObserved: false,
+    }], policy);
+    expect(mixed.precisionPromotionGateFailures)
+      .toContain('calibration_provenance_is_mixed_or_inconsistent');
+  });
+
   test('uses one nearest observation per run and horizon with prospective time boundaries', () => {
     const run: StudyVerificationRun = {
       runId: 'run-1',

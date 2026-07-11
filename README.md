@@ -16,6 +16,7 @@ The client is intentionally honest about data quality. It shows timing, intensit
 - Provider-independent `/v1/nowcast` contract for a calibrated production backend
 - Owned Bun `/v1/nowcast` service with rate limits, request validation, single-flight deduplication, and an immutable forecast archive
 - Prospective radar-study runner with frozen cohorts, scheduled batch issuance, and reproducible source provenance
+- Leakage-safe isotonic calibration with immutable train/validation/evaluation partitions and paired holdout scoring
 
 ## Run locally
 
@@ -82,7 +83,7 @@ Read [architecture](docs/architecture.md), [API contract](docs/nowcast-api.md), 
 
 “Most accurate” is a measured result, not UI copy. Every issued forecast must be archived and verified against independent observations. Public comparisons require a defined region, period, horizon, sample size, and metric. The client therefore shows no fabricated benchmark or uncalibrated numeric confidence score.
 
-The backend now preregisters held-out radar studies and creates immutable per-horizon reliability reports. A report cannot become publication-eligible before the fixed study window ends, below 95% complete cohort issuance, or below any registered sample gate. This evidence scope evaluates Weathercast itself; a claim that Weathercast beats another provider still requires a separately lawful, preregistered paired comparison.
+The backend preregisters held-out radar studies and creates immutable per-horizon reliability reports. A report cannot become publication-eligible before the fixed study window ends, below 95% complete cohort issuance, or below any registered sample gate. Calibration uses disjoint prospective training, validation, and untouched evaluation studies. A versioned isotonic artifact must improve validation Brier, bind before evaluation begins, retain raw issuance-time probabilities, and improve paired Brier on the final holdout before its model-evidence promotion gate opens. This evidence scope evaluates Weathercast itself; a claim that Weathercast beats another provider still requires a separately lawful, preregistered paired comparison.
 
 ## License
 

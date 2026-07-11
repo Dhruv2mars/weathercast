@@ -5,7 +5,7 @@ const validInterval = z.object({
   leadEndMinutes: z.number().int().min(15).max(120),
   validAt: z.iso.datetime(),
   status: z.literal('valid'),
-  probability: z.number().int().min(0).max(100),
+  probability: z.number().finite().min(0).max(100),
   rainRateMmPerHour: z.number().finite().nonnegative().max(300),
 });
 
@@ -25,7 +25,13 @@ export const radarNowcastSchema = z.object({
   product: z.literal('PrecipRate_00.00'),
   sourceDataTime: z.iso.datetime(),
   horizonMinutes: z.literal(120),
-  calibrationStatus: z.literal('uncalibrated'),
+  calibrationStatus: z.enum(['uncalibrated', 'provisional']),
+  calibration: z.object({
+    artifactId: z.string().regex(/^[a-f0-9]{24}$/),
+    artifactSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    method: z.literal('isotonic-pav-v1'),
+    rawProbabilities: z.array(z.number().int().min(0).max(100).nullable()).length(8),
+  }).optional(),
   motion: z.object({
     status: z.enum(['estimated', 'insufficient_echo']),
     rowPixelsPerMinute: z.number().finite().min(-2).max(2),
@@ -48,6 +54,31 @@ export const radarNowcastSchema = z.object({
     reason: z.string().min(1),
   }),
 }).superRefine((value, context) => {
+  if (
+    (value.calibrationStatus === 'uncalibrated' && value.calibration !== undefined)
+    || (value.calibrationStatus === 'provisional' && value.calibration === undefined)
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['calibration'],
+      message: 'Calibration provenance must accompany provisional probabilities only.',
+    });
+  }
+  if (value.calibration) {
+    value.intervals.forEach((interval, index) => {
+      const rawProbability = value.calibration!.rawProbabilities[index];
+      if (
+        (interval.status === 'valid' && rawProbability === null)
+        || (interval.status === 'no_coverage' && rawProbability !== null)
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['calibration', 'rawProbabilities', index],
+          message: 'Raw counterfactual probabilities must match interval coverage.',
+        });
+      }
+    });
+  }
   value.intervals.forEach((interval, index) => {
     if (interval.leadStartMinutes !== index * 15 || interval.leadEndMinutes !== (index + 1) * 15) {
       context.addIssue({

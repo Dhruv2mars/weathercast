@@ -4,8 +4,22 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import type { Nowcast } from '@/types/weather';
+import {
+  fitIsotonicCalibrationArtifact,
+  verifyAppliedCalibration,
+  verifyCalibrationArtifact,
+  type CalibrationArtifact,
+  type CalibrationSample,
+} from './calibration';
+import { calibrationPlanSchema, type CalibrationPlan } from './calibration-contract';
+import { radarNowcastSchema } from './radar-nowcast-contract';
+import { validateRadarNowcastProvenance } from './radar-nowcast-runner';
 import { parseStoredStudyDefinition, studyDefinitionSchema, type StudyDefinition, type StudyTarget } from './study-contract';
-import { computeVerificationStudyReport, type StudyVerificationObservation, type StudyVerificationRun } from './study-verification';
+import {
+  computeVerificationStudyEvidence,
+  type StudyVerificationObservation,
+  type StudyVerificationRun,
+} from './study-verification';
 
 export type NowcastEnvelope = Nowcast & {
   schemaVersion: 1;
@@ -241,6 +255,38 @@ export class ForecastArchive {
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY(study_id, report_version)
       );
+      CREATE TABLE IF NOT EXISTS calibration_plans (
+        id TEXT PRIMARY KEY,
+        registered_at TEXT NOT NULL,
+        algorithm_version TEXT NOT NULL,
+        domain TEXT NOT NULL,
+        product TEXT NOT NULL,
+        method TEXT NOT NULL,
+        evaluation_study_id TEXT NOT NULL REFERENCES verification_studies(id),
+        definition_sha256 TEXT NOT NULL,
+        definition_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS calibration_artifacts (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL REFERENCES calibration_plans(id),
+        artifact_version TEXT NOT NULL,
+        fitted_at TEXT NOT NULL,
+        eligible_for_shadow_application INTEGER NOT NULL CHECK (eligible_for_shadow_application IN (0, 1)),
+        artifact_sha256 TEXT NOT NULL,
+        artifact_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(plan_id, artifact_version)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS calibration_plans_evaluation_study
+        ON calibration_plans(evaluation_study_id);
+      CREATE TABLE IF NOT EXISTS calibration_evaluation_bindings (
+        evaluation_study_id TEXT PRIMARY KEY REFERENCES verification_studies(id),
+        plan_id TEXT NOT NULL UNIQUE REFERENCES calibration_plans(id),
+        artifact_id TEXT NOT NULL UNIQUE REFERENCES calibration_artifacts(id),
+        activated_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
       CREATE INDEX IF NOT EXISTS forecast_issues_cell_fresh
         ON forecast_issues(location_cell, valid_until DESC);
       CREATE TABLE IF NOT EXISTS rain_observations (
@@ -322,6 +368,18 @@ export class ForecastArchive {
         BEFORE UPDATE ON verification_study_reports BEGIN SELECT RAISE(ABORT, 'verification study reports are immutable'); END;
       CREATE TRIGGER IF NOT EXISTS verification_study_reports_no_delete
         BEFORE DELETE ON verification_study_reports BEGIN SELECT RAISE(ABORT, 'verification study reports are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS calibration_plans_no_update
+        BEFORE UPDATE ON calibration_plans BEGIN SELECT RAISE(ABORT, 'calibration plans are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS calibration_plans_no_delete
+        BEFORE DELETE ON calibration_plans BEGIN SELECT RAISE(ABORT, 'calibration plans are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS calibration_artifacts_no_update
+        BEFORE UPDATE ON calibration_artifacts BEGIN SELECT RAISE(ABORT, 'calibration artifacts are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS calibration_artifacts_no_delete
+        BEFORE DELETE ON calibration_artifacts BEGIN SELECT RAISE(ABORT, 'calibration artifacts are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS calibration_evaluation_bindings_no_update
+        BEFORE UPDATE ON calibration_evaluation_bindings BEGIN SELECT RAISE(ABORT, 'calibration evaluation bindings are immutable'); END;
+      CREATE TRIGGER IF NOT EXISTS calibration_evaluation_bindings_no_delete
+        BEFORE DELETE ON calibration_evaluation_bindings BEGIN SELECT RAISE(ABORT, 'calibration evaluation bindings are immutable'); END;
     `);
     this.ensureColumn('rain_observations', 'source_asset_id', 'TEXT REFERENCES source_assets(id)');
     this.ensureColumn('rain_observations', 'truth_resolution_seconds', 'INTEGER NOT NULL DEFAULT 3600 CHECK (truth_resolution_seconds > 0)');
@@ -598,6 +656,340 @@ export class ForecastArchive {
     return { ...study, targets };
   }
 
+  registerCalibrationPlan(input: { definition: CalibrationPlan; registeredAt: string }) {
+    const definition = calibrationPlanSchema.parse(input.definition);
+    if (!isCanonicalIsoTimestamp(input.registeredAt)) {
+      throw new Error('Calibration plan registration time must use canonical UTC ISO format.');
+    }
+    const studyIds = [
+      ...definition.trainingStudyIds,
+      ...definition.validationStudyIds,
+      definition.evaluationStudyId,
+    ];
+    const rows = studyIds.map((id) => this.database.query<{
+      id: string;
+      starts_at: string;
+      ends_at: string;
+      algorithm_version: string;
+      domain: string;
+      product: string;
+      definition_json: string;
+      definition_sha256: string;
+    }, [string]>(`
+      SELECT id, starts_at, ends_at, algorithm_version, domain, product,
+        definition_json, definition_sha256
+      FROM verification_studies
+      WHERE id = ?
+    `).get(id));
+    if (rows.some((row) => !row)) throw new Error('Every calibration partition study must be registered first.');
+    const studies = rows.map((row) => {
+      const definitionSha256 = createHash('sha256').update(row!.definition_json).digest('hex');
+      if (definitionSha256 !== row!.definition_sha256) {
+        throw new Error(`Calibration partition study ${row!.id} has an invalid definition checksum.`);
+      }
+      const parsed = parseStoredStudyDefinition(JSON.parse(row!.definition_json));
+      if (!parsed.reportPolicyPreregistered) {
+        throw new Error(`Calibration partition study ${row!.id} did not preregister its report policy.`);
+      }
+      if (
+        row!.algorithm_version !== definition.algorithmVersion
+        || row!.domain !== definition.domain
+        || row!.product !== definition.product
+        || parsed.definition.horizonsMinutes.length !== definition.horizonsMinutes.length
+        || parsed.definition.horizonsMinutes.some(
+          (horizon, index) => horizon !== definition.horizonsMinutes[index],
+        )
+      ) throw new Error(`Calibration partition study ${row!.id} does not match the plan provenance.`);
+      return { ...row!, definition: parsed.definition };
+    });
+    const byId = new Map(studies.map((study) => [study.id, study]));
+    const training = definition.trainingStudyIds.map((id) => byId.get(id)!);
+    const validation = definition.validationStudyIds.map((id) => byId.get(id)!);
+    const evaluation = byId.get(definition.evaluationStudyId)!;
+    const trainingStartsAt = Math.min(...training.map((study) => new Date(study.starts_at).getTime()));
+    const trainingEndsAt = Math.max(...training.map((study) => new Date(study.ends_at).getTime()));
+    const validationStartsAt = Math.min(...validation.map((study) => new Date(study.starts_at).getTime()));
+    const validationEndsAt = Math.max(...validation.map((study) => new Date(study.ends_at).getTime()));
+    const evaluationStartsAt = new Date(evaluation.starts_at).getTime();
+    if (new Date(input.registeredAt).getTime() >= trainingStartsAt) {
+      throw new Error('Calibration plans must be registered before the training partition starts.');
+    }
+    if (trainingEndsAt > validationStartsAt || validationEndsAt > evaluationStartsAt) {
+      throw new Error('Calibration partitions must occur in training, validation, then evaluation order.');
+    }
+    const definitionJson = JSON.stringify({ schemaVersion: 1, ...definition });
+    const definitionSha256 = createHash('sha256').update(definitionJson).digest('hex');
+    const result = this.database.query(`
+      INSERT OR IGNORE INTO calibration_plans (
+        id, registered_at, algorithm_version, domain, product, method,
+        evaluation_study_id, definition_sha256, definition_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      definition.id,
+      input.registeredAt,
+      definition.algorithmVersion,
+      definition.domain,
+      definition.product,
+      definition.method,
+      definition.evaluationStudyId,
+      definitionSha256,
+      definitionJson,
+    );
+    if (result.changes === 1) {
+      return { id: definition.id, definitionSha256, inserted: true, registeredAt: input.registeredAt };
+    }
+    const existing = this.database.query<{
+      registered_at: string;
+      definition_sha256: string;
+    }, [string]>('SELECT registered_at, definition_sha256 FROM calibration_plans WHERE id = ?')
+      .get(definition.id);
+    if (!existing || existing.definition_sha256 !== definitionSha256) {
+      const evaluationConflict = this.database.query<{ id: string }, [string]>(
+        'SELECT id FROM calibration_plans WHERE evaluation_study_id = ?',
+      ).get(definition.evaluationStudyId);
+      if (evaluationConflict && evaluationConflict.id !== definition.id) {
+        throw new Error(
+          `Evaluation study ${definition.evaluationStudyId} is already claimed by calibration plan ${evaluationConflict.id}.`,
+        );
+      }
+      throw new Error('Calibration plan ID is already registered with a different definition.');
+    }
+    return {
+      id: definition.id,
+      definitionSha256,
+      inserted: false,
+      registeredAt: existing.registered_at,
+    };
+  }
+
+  getCalibrationPlan(id: string) {
+    const row = this.database.query<{
+      id: string;
+      registered_at: string;
+      definition_sha256: string;
+      definition_json: string;
+    }, [string]>(`
+      SELECT id, registered_at, definition_sha256, definition_json
+      FROM calibration_plans
+      WHERE id = ?
+    `).get(id);
+    if (!row) return null;
+    const definitionSha256 = createHash('sha256').update(row.definition_json).digest('hex');
+    if (definitionSha256 !== row.definition_sha256) {
+      throw new Error('Calibration plan definition checksum is invalid.');
+    }
+    const stored = JSON.parse(row.definition_json) as { schemaVersion?: unknown };
+    if (stored.schemaVersion !== 1) throw new Error('Calibration plan schema version is unsupported.');
+    const definition = calibrationPlanSchema.parse(stored);
+    return { ...row, definition };
+  }
+
+  getCalibrationArtifact(id: string) {
+    const row = this.database.query<{
+      artifact_sha256: string;
+      artifact_json: string;
+    }, [string]>(`
+      SELECT artifact_sha256, artifact_json
+      FROM calibration_artifacts
+      WHERE id = ?
+    `).get(id);
+    if (!row) return null;
+    const artifact = JSON.parse(row.artifact_json) as CalibrationArtifact;
+    if (artifact.sha256 !== row.artifact_sha256) {
+      throw new Error('Archived calibration artifact checksum does not match its index.');
+    }
+    return verifyCalibrationArtifact(artifact);
+  }
+
+  fitCalibrationPlan(input: { planId: string; artifactVersion: string; fittedAt: string }) {
+    if (!isCanonicalIsoTimestamp(input.fittedAt)) {
+      throw new Error('Calibration fit time must use canonical UTC ISO format.');
+    }
+    return this.database.transaction(() => {
+      const plan = this.getCalibrationPlan(input.planId);
+      if (!plan) throw new Error('Calibration plan is not registered.');
+      const sourceStudyIds = [
+        ...plan.definition.trainingStudyIds,
+        ...plan.definition.validationStudyIds,
+      ];
+      const studies = sourceStudyIds.map((id) => this.database.query<{
+        id: string;
+        ends_at: string;
+      }, [string]>('SELECT id, ends_at FROM verification_studies WHERE id = ?').get(id));
+      const evaluation = this.database.query<{
+        starts_at: string;
+        definition_sha256: string;
+      }, [string]>(`
+        SELECT starts_at, definition_sha256
+        FROM verification_studies
+        WHERE id = ?
+      `).get(plan.definition.evaluationStudyId);
+      if (studies.some((study) => !study) || !evaluation) {
+        throw new Error('Calibration plan references an unavailable study.');
+      }
+      const fittedTime = new Date(input.fittedAt).getTime();
+      const latestSourceEnd = Math.max(...studies.map((study) => new Date(study!.ends_at).getTime()));
+      if (fittedTime < latestSourceEnd) {
+        throw new Error('Calibration fitting requires completed training and validation partitions.');
+      }
+      if (fittedTime >= new Date(evaluation.starts_at).getTime()) {
+        throw new Error('Calibration fitting must finish before evaluation starts.');
+      }
+      const samples: CalibrationSample[] = [];
+      for (const [partition, ids] of [
+        ['training', plan.definition.trainingStudyIds],
+        ['validation', plan.definition.validationStudyIds],
+      ] as const) {
+        for (const studyId of ids) {
+          const evidence = this.buildVerificationStudyEvidenceInternal(studyId, new Date(input.fittedAt));
+          if (!evidence.report.eligibleForPublication) {
+            throw new Error(`Calibration ${partition} study ${studyId} did not pass its evidence gates.`);
+          }
+          samples.push(...evidence.pairs.map((pair): CalibrationSample => ({
+            partition,
+            studyId: pair.studyId,
+            runId: pair.runId,
+            targetId: pair.targetId,
+            horizonMinutes: pair.horizonMinutes,
+            probability: pair.rawCounterfactualProbability ?? pair.probability,
+            observedRain: pair.observedRain,
+            observedAt: pair.observedAt,
+          })));
+        }
+      }
+      const artifact = fitIsotonicCalibrationArtifact({
+        planId: plan.definition.id,
+        planSha256: plan.definition_sha256,
+        artifactVersion: input.artifactVersion,
+        fittedAt: input.fittedAt,
+        algorithmVersion: plan.definition.algorithmVersion,
+        domain: plan.definition.domain,
+        product: plan.definition.product,
+        evaluationStudyId: plan.definition.evaluationStudyId,
+        evaluationStudySha256: evaluation.definition_sha256,
+        horizonsMinutes: plan.definition.horizonsMinutes,
+        minimumSamplesPerHorizon: plan.definition.minimumSamplesPerHorizon,
+        maximumValidationBrierDegradation: plan.definition.maximumValidationBrierDegradation,
+        minimumAggregateValidationBrierImprovement:
+          plan.definition.minimumAggregateValidationBrierImprovement,
+        samples,
+      });
+      const artifactJson = JSON.stringify(artifact);
+      const result = this.database.query(`
+        INSERT OR IGNORE INTO calibration_artifacts (
+          id, plan_id, artifact_version, fitted_at, eligible_for_shadow_application,
+          artifact_sha256, artifact_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        artifact.id,
+        plan.definition.id,
+        input.artifactVersion,
+        input.fittedAt,
+        artifact.eligibleForShadowApplication ? 1 : 0,
+        artifact.sha256,
+        artifactJson,
+      );
+      if (result.changes === 0) {
+        const existing = this.database.query<{
+          id: string;
+          artifact_sha256: string;
+          artifact_json: string;
+        }, [string, string]>(`
+          SELECT id, artifact_sha256, artifact_json
+          FROM calibration_artifacts
+          WHERE plan_id = ? AND artifact_version = ?
+        `).get(plan.definition.id, input.artifactVersion);
+        if (
+          !existing
+          || existing.id !== artifact.id
+          || existing.artifact_sha256 !== artifact.sha256
+          || existing.artifact_json !== artifactJson
+        ) throw new Error('Calibration artifact version is already archived with different evidence.');
+      }
+      return { artifact, inserted: result.changes === 1 };
+    }).immediate();
+  }
+
+  activateCalibrationArtifact(input: { artifactId: string; activatedAt: string }) {
+    if (!isCanonicalIsoTimestamp(input.activatedAt)) {
+      throw new Error('Calibration activation time must use canonical UTC ISO format.');
+    }
+    return this.database.transaction(() => {
+      const row = this.database.query<{
+        plan_id: string;
+        fitted_at: string;
+        eligible_for_shadow_application: number;
+        evaluation_study_id: string;
+        evaluation_starts_at: string;
+      }, [string]>(`
+        SELECT artifact.plan_id, artifact.fitted_at, artifact.eligible_for_shadow_application,
+          plan.evaluation_study_id, study.starts_at AS evaluation_starts_at
+        FROM calibration_artifacts artifact
+        JOIN calibration_plans plan ON plan.id = artifact.plan_id
+        JOIN verification_studies study ON study.id = plan.evaluation_study_id
+        WHERE artifact.id = ?
+      `).get(input.artifactId);
+      if (!row) throw new Error('Calibration artifact is not archived.');
+      if (row.eligible_for_shadow_application !== 1) {
+        throw new Error('Calibration artifact did not pass validation gates.');
+      }
+      const activatedTime = new Date(input.activatedAt).getTime();
+      if (activatedTime < new Date(row.fitted_at).getTime()) {
+        throw new Error('Calibration artifact cannot be activated before it is fitted.');
+      }
+      if (activatedTime >= new Date(row.evaluation_starts_at).getTime()) {
+        throw new Error('Calibration artifact must be activated before evaluation starts.');
+      }
+      const result = this.database.query(`
+        INSERT OR IGNORE INTO calibration_evaluation_bindings (
+          evaluation_study_id, plan_id, artifact_id, activated_at
+        ) VALUES (?, ?, ?, ?)
+      `).run(
+        row.evaluation_study_id,
+        row.plan_id,
+        input.artifactId,
+        input.activatedAt,
+      );
+      if (result.changes === 0) {
+        const existing = this.database.query<{
+          plan_id: string;
+          artifact_id: string;
+          activated_at: string;
+        }, [string]>(`
+          SELECT plan_id, artifact_id, activated_at
+          FROM calibration_evaluation_bindings
+          WHERE evaluation_study_id = ?
+        `).get(row.evaluation_study_id);
+        if (!existing || existing.plan_id !== row.plan_id || existing.artifact_id !== input.artifactId) {
+          throw new Error('Evaluation study is already bound to a different calibration artifact.');
+        }
+        return {
+          evaluationStudyId: row.evaluation_study_id,
+          planId: row.plan_id,
+          artifactId: input.artifactId,
+          activatedAt: existing.activated_at,
+          inserted: false,
+        };
+      }
+      return {
+        evaluationStudyId: row.evaluation_study_id,
+        planId: row.plan_id,
+        artifactId: input.artifactId,
+        activatedAt: input.activatedAt,
+        inserted: true,
+      };
+    }).immediate();
+  }
+
+  getEvaluationCalibrationArtifact(evaluationStudyId: string) {
+    const binding = this.database.query<{ artifact_id: string }, [string]>(`
+      SELECT artifact_id
+      FROM calibration_evaluation_bindings
+      WHERE evaluation_study_id = ?
+    `).get(evaluationStudyId);
+    return binding ? this.getCalibrationArtifact(binding.artifact_id) : null;
+  }
+
   saveRadarFrame(input: RadarFrameInput) {
     const id = createHash('sha256')
       .update(JSON.stringify({ domain: input.domain, product: input.product, observedAt: input.observedAt }))
@@ -744,6 +1136,25 @@ export class ForecastArchive {
       FROM verification_studies WHERE id = ?
     `).get(input.studyId);
     if (!study) throw new Error('Verification study is not registered.');
+    const evaluationPlan = this.database.query<{ id: string }, [string]>(`
+      SELECT id FROM calibration_plans WHERE evaluation_study_id = ?
+    `).get(input.studyId);
+    const evaluationArtifact = this.getEvaluationCalibrationArtifact(input.studyId);
+    const parsedResponses = input.runs.map(({ run }) => radarNowcastSchema.parse(run.response));
+    if (evaluationPlan) {
+      if (!evaluationArtifact) {
+        throw new Error('Calibration evaluation issuance requires a bound calibration artifact.');
+      }
+      if (parsedResponses.some((response) => (
+        response.calibrationStatus !== 'provisional'
+        || response.calibration?.artifactId !== evaluationArtifact.id
+        || response.calibration?.artifactSha256 !== evaluationArtifact.sha256
+        || response.calibration?.method !== evaluationArtifact.method
+      ))) throw new Error('Calibration evaluation run does not use its bound calibration artifact.');
+      parsedResponses.forEach((response) => verifyAppliedCalibration(response, evaluationArtifact));
+    } else if (parsedResponses.some((response) => response.calibrationStatus !== 'uncalibrated')) {
+      throw new Error('Provisional calibration is only valid for its bound evaluation study.');
+    }
     const scheduledTime = new Date(input.scheduledAt).getTime();
     const issuedTime = new Date(input.issuedAt).getTime();
     const startTime = new Date(study.starts_at).getTime();
@@ -777,14 +1188,34 @@ export class ForecastArchive {
     const inputFrameSequences = new Set(input.runs.map(({ run }) => JSON.stringify(run.inputFrameIds)));
     if (inputFrameSequences.size !== 1) throw new Error('Study batch runs must use the same ordered radar input frames.');
     input.runs.forEach(({ targetId, run }, index) => {
+      const response = parsedResponses[index]!;
       if (
         run.algorithmVersion !== study.algorithm_version
         || run.domain !== study.domain
         || run.product !== study.product
+        || response.algorithmVersion !== run.algorithmVersion
+        || response.product !== run.product
       ) throw new Error(`Study run for target ${targetId} has provenance that does not match the registered algorithm and source.`);
       if (locationCell(run.latitude, run.longitude) !== targets[index]?.location_cell) {
         throw new Error(`Study run for target ${targetId} location does not match its frozen target.`);
       }
+      const inputSha256 = run.inputFrameIds.map((frameId) => this.database.query<{
+        sha256: string;
+      }, [string]>(`
+        SELECT asset.sha256
+        FROM radar_frames frame
+        JOIN source_assets asset ON asset.id = frame.source_asset_id
+        WHERE frame.id = ?
+      `).get(frameId)?.sha256);
+      if (inputSha256.some((checksum) => checksum === undefined)) {
+        throw new Error(`Study run for target ${targetId} references an unavailable radar source asset.`);
+      }
+      validateRadarNowcastProvenance(response, {
+        latitude: run.latitude,
+        longitude: run.longitude,
+        sourceDataTime: run.sourceDataTime,
+        inputSha256: inputSha256 as string[],
+      });
       const sourceTime = new Date(run.sourceDataTime).getTime();
       if (!Number.isFinite(sourceTime) || sourceTime > issuedTime) {
         throw new Error(`Study run for target ${targetId} source time must not be later than issuance.`);
@@ -860,7 +1291,7 @@ export class ForecastArchive {
     `).all(studyId, scheduledAt);
   }
 
-  private buildVerificationStudyReportInternal(studyId: string, asOf: Date) {
+  private buildVerificationStudyEvidenceInternal(studyId: string, asOf: Date) {
     if (!Number.isFinite(asOf.getTime())) throw new Error('Study report cutoff is invalid.');
     const study = this.database.query<{
       registered_at: string;
@@ -924,7 +1355,31 @@ export class ForecastArchive {
         observedAt: observation.observed_at,
         rainObserved: observation.rain_observed === 1,
       }));
-    return computeVerificationStudyReport({
+    const calibrationBinding = this.database.query<{
+      plan_id: string;
+      artifact_id: string;
+    }, [string]>(`
+      SELECT plan_id, artifact_id
+      FROM calibration_evaluation_bindings
+      WHERE evaluation_study_id = ?
+    `).get(studyId);
+    let calibrationEvaluationPolicy:
+      Parameters<typeof computeVerificationStudyEvidence>[0]['calibrationEvaluationPolicy'];
+    if (calibrationBinding) {
+      const plan = this.getCalibrationPlan(calibrationBinding.plan_id);
+      const artifact = this.getCalibrationArtifact(calibrationBinding.artifact_id);
+      if (!plan || !artifact || artifact.evaluationStudyId !== studyId) {
+        throw new Error('Calibration evaluation binding provenance is invalid.');
+      }
+      calibrationEvaluationPolicy = {
+        artifactId: artifact.id,
+        artifactSha256: artifact.sha256,
+        maximumHoldoutBrierDegradation: plan.definition.maximumHoldoutBrierDegradation,
+        minimumAggregateHoldoutBrierImprovement:
+          plan.definition.minimumAggregateHoldoutBrierImprovement,
+      };
+    }
+    return computeVerificationStudyEvidence({
       definition,
       definitionSha256: study.definition_sha256,
       registeredAt: study.registered_at,
@@ -933,7 +1388,12 @@ export class ForecastArchive {
       observations,
       asOf,
       reportPolicyPreregistered,
+      calibrationEvaluationPolicy,
     });
+  }
+
+  private buildVerificationStudyReportInternal(studyId: string, asOf: Date) {
+    return this.buildVerificationStudyEvidenceInternal(studyId, asOf).report;
   }
 
   buildVerificationStudyReport(studyId: string, asOf: Date) {

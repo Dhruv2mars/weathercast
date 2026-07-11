@@ -21,6 +21,9 @@
 - [ ] Final study report reaches 95% complete-cohort issuance and every per-horizon sample gate
 - [ ] Confidence labels validated by reliability curves
 - [ ] Precision calibration is trained outside the evaluation cohort and passes an independent holdout
+- [ ] Calibration plan was registered before training; training, validation, and evaluation partitions remained disjoint
+- [ ] One immutable validation-passing artifact was bound before evaluation issuance began
+- [ ] Final holdout has paired raw probabilities for every scored calibrated observation and passes all Brier gates
 - [ ] Accuracy claims include metric, horizon, region, dates, and sample size
 - [ ] Competitor claims use a lawful preregistered paired comparison; own-model evidence is not relabeled as superiority
 - [ ] Provider outages degrade to a named lower coverage tier

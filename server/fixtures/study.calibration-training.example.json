@@ -1,8 +1,8 @@
 {
-  "id": "mrms-metar-conus-evaluation-2026-v1",
-  "title": "Untouched CONUS calibration evaluation study",
-  "startsAt": "2026-10-01T00:00:00.000Z",
-  "endsAt": "2026-10-29T00:00:00.000Z",
+  "id": "mrms-metar-conus-calibration-training-2026-v1",
+  "title": "CONUS calibration training partition study",
+  "startsAt": "2026-08-01T00:00:00.000Z",
+  "endsAt": "2026-08-29T00:00:00.000Z",
   "algorithmVersion": "translation-ensemble-v1",
   "domain": "CONUS",
   "product": "PrecipRate_00.00",
