@@ -1,4 +1,4 @@
-# Store listing draft
+# Store listing
 
 ## Name
 
@@ -28,4 +28,4 @@ Weathercast is not an emergency-warning or safety-critical service. Follow offic
 4. Places: current and saved locations
 5. Accuracy: transparent measurement definitions
 
-Final screenshots must be captured from signed production builds using live production data and current store-required device sizes.
+Store metadata for Apple is mirrored in `store.config.json`. Final screenshots must be captured from signed production builds using live production data and current store-required device sizes.
