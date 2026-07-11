@@ -1,0 +1,1 @@
+Rain timing, intensity, duration, and confidence for the next 120 minutes.

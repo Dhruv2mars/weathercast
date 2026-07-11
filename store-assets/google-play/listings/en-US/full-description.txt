@@ -1,0 +1,17 @@
+Weathercast answers one question clearly: when will rain reach this place?
+
+Choose a place or use your foreground location to see whether rain is approaching, its likely arrival window, expected intensity, duration, and forecast confidence for the next 120 minutes.
+
+Coverage is shown honestly. Precision regions can use licensed radar and dense observations; other regions use Enhanced or Standard guidance. Forecast freshness and source are visible, saved places remain on your device, and no account or background location is required.
+
+Use Weathercast to:
+• Check whether rain is expected near a selected place
+• See a simple 120-minute rain timeline
+• Understand forecast confidence and coverage quality
+• Save places locally on your device
+• Schedule on-device rain reminders
+• Review how Weathercast measures rain detection, start-time error, false alerts, and confidence calibration
+
+Weathercast does not sell personal data and does not require an account. Precise location is sent only when you choose current-location forecasting and is used to return local weather guidance.
+
+Weathercast is not an emergency-warning or life-safety service. Follow official local alerts and instructions during dangerous weather.

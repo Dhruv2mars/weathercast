@@ -1,0 +1,1 @@
+First public release of Weathercast: focused rain guidance for the next 120 minutes, saved places, coverage confidence, local reminders, and transparent accuracy definitions.
