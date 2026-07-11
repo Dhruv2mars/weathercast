@@ -519,6 +519,21 @@ export class ForecastArchive {
     return { id, sha256 };
   }
 
+  archiveSourceAsset(input: SourceAssetInput) {
+    return this.saveSourceAsset(input);
+  }
+
+  archiveObservationBatch(input: { asset: SourceAssetInput; observations: RainObservationInput[] }) {
+    return this.database.transaction(() => {
+      const asset = this.saveSourceAsset(input.asset);
+      input.observations.forEach((observation) => this.saveObservation({
+        ...observation,
+        sourceAssetId: asset.id,
+      }));
+      return { asset, observationsAccepted: input.observations.length };
+    }).immediate();
+  }
+
   countSourceAssets() {
     const row = this.database.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM source_assets').get();
     return row?.count ?? 0;
@@ -1051,6 +1066,17 @@ export class ForecastArchive {
       input.sourceAssetId,
     );
     return id;
+  }
+
+  archiveRadarFrame(input: {
+    asset: SourceAssetInput;
+    frame: Omit<RadarFrameInput, 'sourceAssetId'>;
+  }) {
+    return this.database.transaction(() => {
+      const asset = this.saveSourceAsset(input.asset);
+      const frameId = this.saveRadarFrame({ ...input.frame, sourceAssetId: asset.id });
+      return { asset, frameId };
+    }).immediate();
   }
 
   listRadarFrames(domain: string, product: string, limit = 30) {

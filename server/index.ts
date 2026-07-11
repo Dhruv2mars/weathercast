@@ -1,14 +1,10 @@
-import { ForecastArchive } from './archive';
 import { createHandler } from './app';
 import { loadConfig } from './config';
-import type { ForecastStore } from './forecast-store';
-import { PostgresForecastStore } from './postgres-forecast-store';
 import { NormalizedHttpProvider, OpenMeteoEvaluationProvider } from './providers';
+import { createWeathercastStore } from './store-factory';
 
 const config = loadConfig();
-const archive: ForecastStore = config.ARCHIVE_MODE === 'postgres'
-  ? await PostgresForecastStore.create(config.DATABASE_URL!)
-  : new ForecastArchive(config.DATABASE_PATH);
+const archive = await createWeathercastStore(config);
 const provider = config.NOWCAST_PROVIDER_MODE === 'normalized-upstream'
   ? new NormalizedHttpProvider(
       config.NORMALIZED_UPSTREAM_URL!,

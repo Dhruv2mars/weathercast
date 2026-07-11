@@ -43,13 +43,13 @@ describe('AviationWeather METAR adapter', () => {
     expect(() => parseMetarBytes(new TextEncoder().encode('{broken'))).toThrow();
   });
 
-  test('archives raw bytes before parsing so malformed upstream data remains diagnosable', () => {
+  test('archives raw bytes before parsing so malformed upstream data remains diagnosable', async () => {
     const archive = new ForecastArchive(':memory:');
-    expect(() => archiveMetarBatch(archive, {
+    await expect(archiveMetarBatch(archive, {
       stationIds: ['VIDP'],
       retrievedAt: '2026-07-10T15:00:00.000Z',
       raw: new TextEncoder().encode('{broken'),
-    })).toThrow();
+    })).rejects.toThrow();
     expect(archive.countSourceAssets()).toBe(1);
     expect(archive.listObservationPoints()).toEqual([]);
     archive.close();

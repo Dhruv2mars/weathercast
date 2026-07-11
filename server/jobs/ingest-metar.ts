@@ -1,5 +1,6 @@
 import { archiveMetarBatch, AviationWeatherMetarAdapter, validateMetarUserAgent } from '../aviation-weather';
-import { ForecastArchive } from '../archive';
+import { loadConfig } from '../config';
+import { createWeathercastStore } from '../store-factory';
 
 const stationIds = (process.env.METAR_STATION_IDS ?? '')
   .split(',')
@@ -11,11 +12,11 @@ const userAgent = process.env.WEATHERCAST_USER_AGENT ?? 'Weathercast-Development
 const adapter = new AviationWeatherMetarAdapter(validateMetarUserAgent(userAgent, process.env.NODE_ENV === 'production'));
 const controller = new AbortController();
 const timeout = setTimeout(() => controller.abort(), 15_000);
-const archive = new ForecastArchive(process.env.DATABASE_PATH ?? '.data/weathercast.sqlite');
+const archive = await createWeathercastStore(loadConfig());
 
 try {
   const result = await adapter.fetchRaw(stationIds, controller.signal);
-  const archived = archiveMetarBatch(archive, { stationIds, ...result });
+  const archived = await archiveMetarBatch(archive, { stationIds, ...result });
   console.info(JSON.stringify({
     sourceAssetId: archived.asset.id,
     sha256: archived.asset.sha256,
@@ -23,5 +24,5 @@ try {
   }));
 } finally {
   clearTimeout(timeout);
-  archive.close();
+  await archive.close();
 }

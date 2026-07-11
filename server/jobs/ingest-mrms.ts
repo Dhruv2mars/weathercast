@@ -1,5 +1,6 @@
-import { ForecastArchive } from '../archive';
+import { loadConfig } from '../config';
 import { ingestMrmsFrames, MrmsAdapter, type MrmsDomain, type MrmsProduct } from '../mrms';
+import { createWeathercastStore } from '../store-factory';
 
 const domain = (process.env.MRMS_DOMAIN ?? 'CONUS') as MrmsDomain;
 const product = (process.env.MRMS_PRODUCT ?? 'PrecipRate_00.00') as MrmsProduct;
@@ -12,7 +13,7 @@ if (!Number.isInteger(frameCount) || frameCount < 1 || frameCount > 30) {
 
 const controller = new AbortController();
 const timeout = setTimeout(() => controller.abort(), 60_000);
-const archive = new ForecastArchive(process.env.DATABASE_PATH ?? '.data/weathercast.sqlite');
+const archive = await createWeathercastStore(loadConfig());
 const adapter = new MrmsAdapter(process.env.WEATHERCAST_USER_AGENT ?? 'Weathercast-Development/1.0 contact=dev@weathercast.invalid');
 
 try {
@@ -25,12 +26,12 @@ try {
     frameCount,
     signal: controller.signal,
   });
-  const frames = archive.listRadarFrames(domain, product, frameCount);
+  const frames = await archive.listRadarFrames(domain, product, frameCount);
   const newest = frames[0]?.observed_at ?? null;
   const ageMinutes = newest ? Math.round((Date.now() - new Date(newest).getTime()) / 60_000) : null;
   console.info(JSON.stringify({ ...result, newest, ageMinutes }));
   if (ageMinutes === null || ageMinutes > 10) process.exitCode = 1;
 } finally {
   clearTimeout(timeout);
-  archive.close();
+  await archive.close();
 }
