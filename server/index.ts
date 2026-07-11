@@ -1,10 +1,14 @@
 import { ForecastArchive } from './archive';
 import { createHandler } from './app';
 import { loadConfig } from './config';
+import type { ForecastStore } from './forecast-store';
+import { PostgresForecastStore } from './postgres-forecast-store';
 import { NormalizedHttpProvider, OpenMeteoEvaluationProvider } from './providers';
 
 const config = loadConfig();
-const archive = new ForecastArchive(config.DATABASE_PATH);
+const archive: ForecastStore = config.ARCHIVE_MODE === 'postgres'
+  ? await PostgresForecastStore.create(config.DATABASE_URL!)
+  : new ForecastArchive(config.DATABASE_PATH);
 const provider = config.NOWCAST_PROVIDER_MODE === 'normalized-upstream'
   ? new NormalizedHttpProvider(
       config.NORMALIZED_UPSTREAM_URL!,
@@ -20,8 +24,8 @@ const server = Bun.serve({
 
 console.info(`Weathercast API listening on ${server.url}`);
 
-function shutdown() {
-  archive.close();
+async function shutdown() {
+  await archive.close();
   void server.stop();
 }
 

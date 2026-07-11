@@ -1,15 +1,16 @@
 import { buildNowcast } from '@/domain/nowcast';
 
-import { createForecastId, ForecastArchive, locationCell, type NowcastEnvelope } from './archive';
+import { createForecastId, locationCell, type NowcastEnvelope } from './archive';
 import type { ApiConfig } from './config';
 import { coordinatesSchema } from './contracts';
+import type { ForecastStore } from './forecast-store';
 import type { ForecastProvider } from './providers';
 import { FixedWindowRateLimiter } from './rate-limit';
 import { selectStudyRadarFrames } from './study-issuance';
 
 type Dependencies = {
   config: ApiConfig;
-  archive: ForecastArchive;
+  archive: ForecastStore;
   provider: ForecastProvider;
   now?: () => Date;
 };
@@ -124,7 +125,7 @@ export function createHandler({ config, archive, provider, now = () => new Date(
         },
       };
       try {
-        archive.save({
+        return await archive.save({
           envelope,
           cell,
           latitude: Number(latitude.toFixed(4)),
@@ -135,7 +136,6 @@ export function createHandler({ config, archive, provider, now = () => new Date(
       } catch {
         throw new ServiceError('ARCHIVE_UNAVAILABLE', 503, 'Forecast archive is unavailable.');
       }
-      return envelope;
     } finally {
       clearTimeout(timeout);
     }
@@ -157,7 +157,7 @@ export function createHandler({ config, archive, provider, now = () => new Date(
     }
 
     if (request.method === 'GET' && url.pathname === '/readyz') {
-      const archiveReady = archive.isReady();
+      const archiveReady = await archive.isReady();
       const checks: Record<string, 'pass' | 'fail'> = {
         archive: archiveReady ? 'pass' : 'fail',
       };
@@ -171,7 +171,7 @@ export function createHandler({ config, archive, provider, now = () => new Date(
         if (archiveReady) {
           try {
             selectStudyRadarFrames({
-              newestFirst: archive.listRadarFrames(
+              newestFirst: await archive.listRadarFrames(
                 config.READINESS_RADAR_DOMAIN,
                 config.READINESS_RADAR_PRODUCT,
                 config.READINESS_MIN_RADAR_FRAMES,
@@ -189,7 +189,7 @@ export function createHandler({ config, archive, provider, now = () => new Date(
         let observationsReady = false;
         if (archiveReady) {
           try {
-            observationsReady = archive.countRecentVerifiedObservationStations(
+            observationsReady = await archive.countRecentVerifiedObservationStations(
               config.READINESS_OBSERVATION_SOURCE,
               observationSince,
               through,
@@ -242,7 +242,7 @@ export function createHandler({ config, archive, provider, now = () => new Date(
     const coordinates = parsedCoordinates.data;
     const cell = locationCell(coordinates.latitude, coordinates.longitude);
     const generatedAt = now();
-    const cached = archive.findFresh(cell, generatedAt);
+    const cached = await archive.findFresh(cell, generatedAt);
     if (cached) {
       response = forecastResponse(cached, request, 'HIT');
       return withCommonHeaders(response, requestId, config.CORS_ORIGIN);
