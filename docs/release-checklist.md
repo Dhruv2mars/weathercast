@@ -27,6 +27,7 @@
 - [ ] Accuracy claims include metric, horizon, region, dates, and sample size
 - [ ] Competitor claims use a lawful preregistered paired comparison; own-model evidence is not relabeled as superiority
 - [ ] Provider outages degrade to a named lower coverage tier
+- [ ] `/readyz` write probe, contiguous-radar gate, and distinct-station truth gate remove unhealthy instances from traffic
 
 ## Store and legal gates
 
