@@ -35,7 +35,7 @@ describe('prospective study issuance', () => {
       newestFirst: [frame('06'), frame('04'), frame('02'), frame('00')],
       expectedCount: 4,
       now: new Date('2026-07-11T00:17:00.001Z'),
-    })).toThrow('more than ten minutes old');
+    })).toThrow('freshness limit');
     expect(() => selectStudyRadarFrames({
       newestFirst: [frame('08'), frame('02'), frame('00')],
       expectedCount: 3,

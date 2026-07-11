@@ -12,6 +12,12 @@ const environmentSchema = z.object({
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(120),
   FORECAST_CACHE_SECONDS: z.coerce.number().int().min(30).max(900).default(240),
   UPSTREAM_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(8_000),
+  READINESS_REQUIRE_PRECISION_DATA: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
+  READINESS_RADAR_MAX_AGE_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
+  READINESS_OBSERVATION_MAX_AGE_SECONDS: z.coerce.number().int().min(300).max(14_400).default(7200),
+  READINESS_MIN_RADAR_FRAMES: z.coerce.number().int().min(3).max(12).default(4),
+  READINESS_MIN_OBSERVATION_STATIONS: z.coerce.number().int().min(1).max(500).default(10),
 });
 
 export type ApiConfig = z.infer<typeof environmentSchema>;
@@ -30,6 +36,9 @@ export function loadConfig(environment: Record<string, string | undefined> = pro
     }
     if (config.CORS_ORIGIN === '*') {
       throw new Error('Production requires an explicit CORS_ORIGIN.');
+    }
+    if (!config.READINESS_REQUIRE_PRECISION_DATA) {
+      throw new Error('Production requires precision readiness checks to be enabled.');
     }
     const upstream = new URL(config.NORMALIZED_UPSTREAM_URL!);
     if (upstream.protocol !== 'https:') {

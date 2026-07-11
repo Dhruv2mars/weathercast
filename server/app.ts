@@ -5,6 +5,7 @@ import type { ApiConfig } from './config';
 import { coordinatesSchema } from './contracts';
 import type { ForecastProvider } from './providers';
 import { FixedWindowRateLimiter } from './rate-limit';
+import { selectStudyRadarFrames } from './study-issuance';
 
 type Dependencies = {
   config: ApiConfig;
@@ -125,9 +126,51 @@ export function createHandler({ config, archive, provider, now = () => new Date(
     }
 
     if (request.method === 'GET' && url.pathname === '/readyz') {
-      response = archive.isReady()
-        ? json({ status: 'ready' })
-        : json({ code: 'NOT_READY', message: 'Forecast archive unavailable.', requestId }, 503);
+      const archiveReady = archive.isReady();
+      const checks: Record<string, 'pass' | 'fail'> = {
+        archive: archiveReady ? 'pass' : 'fail',
+      };
+      if (config.READINESS_REQUIRE_PRECISION_DATA) {
+        const checkedAt = now();
+        const through = checkedAt.toISOString();
+        const observationSince = new Date(
+          checkedAt.getTime() - config.READINESS_OBSERVATION_MAX_AGE_SECONDS * 1000,
+        ).toISOString();
+        let radarReady = false;
+        if (archiveReady) {
+          try {
+            selectStudyRadarFrames({
+              newestFirst: archive.listRadarFrames(
+                'CONUS',
+                'PrecipRate_00.00',
+                config.READINESS_MIN_RADAR_FRAMES,
+              ),
+              expectedCount: config.READINESS_MIN_RADAR_FRAMES,
+              now: checkedAt,
+              maximumAgeSeconds: config.READINESS_RADAR_MAX_AGE_SECONDS,
+            });
+            radarReady = true;
+          } catch {
+            radarReady = false;
+          }
+        }
+        checks.radar = radarReady ? 'pass' : 'fail';
+        let observationsReady = false;
+        if (archiveReady) {
+          try {
+            observationsReady = archive.countRecentVerifiedObservationStations(
+              'aviation-weather-metar',
+              observationSince,
+              through,
+            ) >= config.READINESS_MIN_OBSERVATION_STATIONS;
+          } catch {
+            observationsReady = false;
+          }
+        }
+        checks.observations = observationsReady ? 'pass' : 'fail';
+      }
+      const ready = Object.values(checks).every((status) => status === 'pass');
+      response = json({ status: ready ? 'ready' : 'not_ready', checks }, ready ? 200 : 503);
       return withCommonHeaders(response, requestId, config.CORS_ORIGIN);
     }
 

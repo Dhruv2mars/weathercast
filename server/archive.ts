@@ -145,6 +145,11 @@ export class ForecastArchive {
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(provider, upstream_key, sha256)
       );
+
+      CREATE TABLE IF NOT EXISTS readiness_probes (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        checked_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS forecast_issues (
         id TEXT PRIMARY KEY,
         issued_at TEXT NOT NULL,
@@ -394,7 +399,26 @@ export class ForecastArchive {
   }
 
   isReady() {
-    return this.database.query('SELECT 1 AS ready').get() !== null;
+    try {
+      return this.database.transaction(() => {
+        this.database.query(`
+          INSERT INTO readiness_probes (id, checked_at) VALUES (1, ?)
+          ON CONFLICT(id) DO UPDATE SET checked_at = excluded.checked_at
+        `).run(new Date().toISOString());
+        this.database.query('DELETE FROM readiness_probes WHERE id = 1').run();
+        return true;
+      })();
+    } catch {
+      return false;
+    }
+  }
+
+  countRecentVerifiedObservationStations(source: string, since: string, through: string) {
+    return this.database.query<{ count: number }, [string, string, string]>(`
+      SELECT COUNT(DISTINCT json_extract(payload_json, '$.icaoId')) AS count
+      FROM rain_observations
+      WHERE source = ? AND quality = 'verified' AND observed_at >= ? AND observed_at <= ?
+    `).get(source, since, through)?.count ?? 0;
   }
 
   findFresh(cell: string, now: Date): NowcastEnvelope | null {

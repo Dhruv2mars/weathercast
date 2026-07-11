@@ -62,6 +62,97 @@ describe('Weathercast API', () => {
     archive.close();
   });
 
+  test('fails precision readiness closed until radar and truth are fresh', async () => {
+    const { archive, handler } = setup({
+      READINESS_REQUIRE_PRECISION_DATA: 'true',
+      READINESS_RADAR_MAX_AGE_SECONDS: '600',
+      READINESS_OBSERVATION_MAX_AGE_SECONDS: '7200',
+      READINESS_MIN_RADAR_FRAMES: '3',
+      READINESS_MIN_OBSERVATION_STATIONS: '1',
+    });
+    const missing = await handler(new Request('http://api/readyz'));
+    expect(missing.status).toBe(503);
+    expect(await missing.json()).toEqual({
+      status: 'not_ready',
+      checks: { archive: 'pass', radar: 'fail', observations: 'fail' },
+    });
+
+    const asset = archive.saveSourceAsset({
+      provider: 'noaa-mrms-nodd',
+      upstreamKey: 'readiness-frame',
+      retrievedAt: '2026-07-10T09:58:00.000Z',
+      mediaType: 'application/gzip',
+      bytes: new TextEncoder().encode('readiness-frame'),
+    });
+    for (const [index, observedAt] of [
+      '2026-07-10T09:50:00.000Z',
+      '2026-07-10T09:51:00.000Z',
+      '2026-07-10T09:58:00.000Z',
+    ].entries()) {
+      archive.saveRadarFrame({
+        domain: 'CONUS',
+        product: 'PrecipRate_00.00',
+        observedAt,
+        retrievedAt: '2026-07-10T09:58:00.000Z',
+        objectKey: `readiness-frame-${index}`,
+        sourceAssetId: asset.id,
+      });
+    }
+    archive.saveObservation({
+      source: 'aviation-weather-metar',
+      sourceEventId: 'KHSV:readiness',
+      observedAt: '2026-07-10T09:00:00.000Z',
+      latitude: 34.6441,
+      longitude: -86.7862,
+      rainObserved: false,
+      quality: 'verified',
+      payload: { icaoId: 'KHSV' },
+    });
+    const gapped = await handler(new Request('http://api/readyz'));
+    expect(gapped.status).toBe(503);
+    expect((await gapped.json()).checks.radar).toBe('fail');
+    for (const [index, observedAt] of [
+      '2026-07-10T09:53:00.000Z',
+      '2026-07-10T09:56:00.000Z',
+    ].entries()) {
+      archive.saveRadarFrame({
+        domain: 'CONUS',
+        product: 'PrecipRate_00.00',
+        observedAt,
+        retrievedAt: '2026-07-10T09:58:00.000Z',
+        objectKey: `readiness-contiguous-${index}`,
+        sourceAssetId: asset.id,
+      });
+    }
+    const ready = await handler(new Request('http://api/readyz'));
+    expect(ready.status).toBe(200);
+    expect(await ready.json()).toEqual({
+      status: 'ready',
+      checks: { archive: 'pass', radar: 'pass', observations: 'pass' },
+    });
+    archive.close();
+  });
+
+  test('does not expose dependency timestamps when readiness fails', async () => {
+    const { archive, handler } = setup({ READINESS_REQUIRE_PRECISION_DATA: 'true' });
+    archive.isReady = () => false;
+    const response = await handler(new Request('http://api/readyz'));
+    expect(response.status).toBe(503);
+    const body = await response.text();
+    expect(body).not.toContain('2026-');
+    expect(body).not.toContain('sqlite');
+    archive.close();
+  });
+
+  test('returns not-ready instead of throwing when a dependency probe errors', async () => {
+    const { archive, handler } = setup({ READINESS_REQUIRE_PRECISION_DATA: 'true' });
+    archive.countRecentVerifiedObservationStations = () => { throw new Error('damaged index'); };
+    const response = await handler(new Request('http://api/readyz'));
+    expect(response.status).toBe(503);
+    expect((await response.json()).status).toBe('not_ready');
+    archive.close();
+  });
+
   test('accepts coordinates in a POST body so production URLs do not expose location', async () => {
     const { archive, handler } = setup();
     const response = await handler(new Request('http://api/v1/nowcast', {

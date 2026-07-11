@@ -31,7 +31,12 @@ export function selectStudyRadarFrames(input: {
   newestFirst: ArchivedRadarFrame[];
   expectedCount: number;
   now: Date;
+  maximumAgeSeconds?: number;
 }) {
+  const maximumAgeSeconds = input.maximumAgeSeconds ?? 600;
+  if (!Number.isInteger(maximumAgeSeconds) || maximumAgeSeconds < 60 || maximumAgeSeconds > 3600) {
+    throw new Error('MRMS frame freshness limit is invalid.');
+  }
   if (input.newestFirst.length !== input.expectedCount) {
     throw new Error(`Expected ${input.expectedCount} archived MRMS frames.`);
   }
@@ -41,7 +46,9 @@ export function selectStudyRadarFrames(input: {
   if (!Number.isFinite(now) || !Number.isFinite(newestTime) || newestTime > now + 60_000) {
     throw new Error('Newest MRMS frame has an invalid observation time.');
   }
-  if (now - newestTime > 10 * 60_000) throw new Error('Newest MRMS frame is more than ten minutes old.');
+  if (now - newestTime > maximumAgeSeconds * 1000) {
+    throw new Error('Newest MRMS frame exceeds the configured freshness limit.');
+  }
   frames.slice(1).forEach((frame, index) => {
     const previousTime = new Date(frames[index]!.observed_at).getTime();
     const currentTime = new Date(frame.observed_at).getTime();
