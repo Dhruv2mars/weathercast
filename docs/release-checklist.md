@@ -34,7 +34,8 @@
 
 - [x] Active Google Play developer account and Weathercast app record created
 - [ ] Apple Developer account (not required for the Android-first launch)
-- [x] Android package identifier `com.dhruv2mars.weathercast` confirmed in Google Play
+- [x] Existing Google Play app uses package identifier `com.dhruv2mars.weathercast`
+- [ ] New Google Play app record created for configured package identifier `com.weathercast.app`
 - [x] Public privacy-policy and terms URLs published
 - [ ] Operational support channel tested
 - [ ] App icon, screenshots, descriptions, age rating, privacy nutrition labels, and Data Safety form approved using `store.config.json` and `docs/store-privacy-declarations.md`

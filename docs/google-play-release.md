@@ -8,11 +8,12 @@
 | Account type | Personal |
 | Play app ID | `4971995592984091862` |
 | App name | Weathercast — Rain Nowcast |
-| Package | `com.dhruv2mars.weathercast` |
+| Existing Play app package | `com.dhruv2mars.weathercast` |
+| Configured package | `com.weathercast.app` |
 | Default language | English (United States) |
 | Pricing | Free |
 
-The app record was created in Google Play Console on 11 July 2026. The package name was checked and accepted by Play before creation.
+The app record was created in Google Play Console on 11 July 2026 for `com.dhruv2mars.weathercast`. Google Play package names cannot be changed after an app record is created. Publishing `com.weathercast.app` therefore requires a new Play app record; it cannot update the existing app.
 
 ## Required release path
 

@@ -60,7 +60,7 @@ export default (): ExpoConfig => {
     updates: { fallbackToCacheTimeout: 0 },
     ios: {
       icon: './assets/expo.icon',
-      bundleIdentifier: 'com.dhruv2mars.weathercast',
+      bundleIdentifier: 'com.weathercast.app',
       supportsTablet: true,
       privacyManifests: {
         NSPrivacyTracking: false,
@@ -96,7 +96,7 @@ export default (): ExpoConfig => {
       },
     },
     android: {
-      package: 'com.dhruv2mars.weathercast',
+      package: 'com.weathercast.app',
       adaptiveIcon: {
         backgroundColor: '#E6F4FE',
         foregroundImage: './assets/images/android-icon-foreground.png',
