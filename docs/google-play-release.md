@@ -6,7 +6,7 @@
 | --- | --- |
 | Developer account | Dhruv2mars |
 | Account type | Personal |
-| Play app ID | `4971995592984091862` |
+| Existing Play app ID | `4971995592984091862` |
 | App name | Weathercast — Rain Nowcast |
 | Existing Play app package | `com.dhruv2mars.weathercast` |
 | Configured package | `com.weathercast.app` |
