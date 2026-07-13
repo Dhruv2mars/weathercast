@@ -15,7 +15,7 @@
 - [ ] EAS production environment passes the fail-closed config validation
 - [ ] Commercial rights and redistribution terms signed for every regional source
 - [ ] Radar manifest/tile CDN configured for Precision regions
-- [ ] Android-restricted Google Maps SDK key configured for the release signing certificate
+- [ ] Google Maps SDK key restricted to Android package `com.weathercast.app` and the release signing certificate SHA-1
 - [ ] Forecast archive, observation truth set, and verification jobs operating
 - [ ] Prospective schema-v3 study registered before its start; cohort, timing, input-frame count, and ensemble size unchanged
 - [ ] Final study report reaches 95% complete-cohort issuance and every per-horizon sample gate
