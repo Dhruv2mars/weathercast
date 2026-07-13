@@ -15,7 +15,7 @@
 - [ ] EAS production environment passes the fail-closed config validation
 - [ ] Commercial rights and redistribution terms signed for every regional source
 - [ ] Radar manifest/tile CDN configured for Precision regions
-- [ ] Android-restricted Google Maps SDK key configured for the release signing certificate
+- [ ] Google Maps SDK key restricted to Android package `com.weathercast.app` and the release signing certificate SHA-1
 - [ ] Forecast archive, observation truth set, and verification jobs operating
 - [ ] Prospective schema-v3 study registered before its start; cohort, timing, input-frame count, and ensemble size unchanged
 - [ ] Final study report reaches 95% complete-cohort issuance and every per-horizon sample gate
@@ -34,7 +34,8 @@
 
 - [x] Active Google Play developer account and Weathercast app record created
 - [ ] Apple Developer account (not required for the Android-first launch)
-- [x] Android package identifier `com.dhruv2mars.weathercast` confirmed in Google Play
+- [x] Existing Google Play app uses package identifier `com.dhruv2mars.weathercast`
+- [ ] New Google Play app record created for configured package identifier `com.weathercast.app`
 - [x] Public privacy-policy and terms URLs published
 - [ ] Operational support channel tested
 - [ ] App icon, screenshots, descriptions, age rating, privacy nutrition labels, and Data Safety form approved using `store.config.json` and `docs/store-privacy-declarations.md`
