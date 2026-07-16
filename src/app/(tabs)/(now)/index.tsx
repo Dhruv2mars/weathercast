@@ -13,7 +13,7 @@ import { getAlertPlan } from '@/domain/alerts';
 import { useNowcast } from '@/hooks/use-nowcast';
 import { usePreferences } from '@/hooks/use-preferences';
 import { useSelectedPlace } from '@/hooks/use-selected-place';
-import { formatRelativeUpdate, formatTime, intensityLabel } from '@/lib/format';
+import { formatForecastFreshness, formatTime, intensityLabel } from '@/lib/format';
 import { syncScheduledAlert } from '@/services/notifications';
 
 export default function NowScreen() {
@@ -120,7 +120,7 @@ export default function NowScreen() {
                 <View style={{ padding: 16, gap: 4 }}>
                   <Text selectable style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>Freshness</Text>
                   <Text selectable style={{ color: theme.secondaryText, fontSize: 15 }}>
-                    {formatRelativeUpdate(nowcast.generatedAt ?? nowcast.issuedAt)}
+                    {formatForecastFreshness(nowcast.generatedAt ?? nowcast.issuedAt, network.isConnected)}
                   </Text>
                   {!nowcast.sourceDataTime && nowcast.forecastId && (
                     <Text selectable style={{ color: theme.secondaryText, fontSize: 13 }}>Provider source timestamp unavailable</Text>

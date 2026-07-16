@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
@@ -6,11 +7,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppButton } from '@/components/app-button';
 import { spacing, useAppTheme } from '@/constants/theme';
 import { usePreferences } from '@/hooks/use-preferences';
+import { cacheCurrentPlace } from '@/lib/current-place-cache';
 import { requestCurrentPlace } from '@/services/location';
 
 export default function OnboardingScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
+  const queryClient = useQueryClient();
   const [preferences, setPreferences] = usePreferences();
   const [isLocating, setIsLocating] = useState(false);
   const [error, setError] = useState<string>();
@@ -19,7 +22,8 @@ export default function OnboardingScreen() {
     setIsLocating(true);
     setError(undefined);
     try {
-      await requestCurrentPlace();
+      const place = await requestCurrentPlace();
+      cacheCurrentPlace(queryClient, place);
       setPreferences({ ...preferences, selectedPlaceId: 'current', onboardingComplete: true });
       router.replace('/');
     } catch (caught) {

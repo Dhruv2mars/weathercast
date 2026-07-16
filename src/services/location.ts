@@ -11,9 +11,18 @@ export async function requestCurrentPlace(): Promise<Place> {
 export async function readCurrentPlace(): Promise<Place> {
   const servicesEnabled = await Location.hasServicesEnabledAsync();
   if (!servicesEnabled) throw new Error('LOCATION_SERVICES_OFF');
-  const position = await Location.getCurrentPositionAsync({
-    accuracy: Location.Accuracy.Balanced,
-  });
+  let position;
+  try {
+    position = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+  } catch {
+    position = await Location.getLastKnownPositionAsync({
+      maxAge: 5 * 60_000,
+      requiredAccuracy: 1_000,
+    });
+    if (!position) throw new Error('LOCATION_UNAVAILABLE');
+  }
   const latitude = position.coords.latitude;
   const longitude = position.coords.longitude;
   let name = 'Current location';
@@ -25,7 +34,7 @@ export async function readCurrentPlace(): Promise<Place> {
     admin = address?.region ?? undefined;
     country = address?.country ?? undefined;
   } catch {
-    name = 'Current location';
+    // Keep the coordinate-based fallback name when reverse geocoding is unavailable.
   }
   return { id: 'current', name, admin, country, latitude, longitude, source: 'current' };
 }

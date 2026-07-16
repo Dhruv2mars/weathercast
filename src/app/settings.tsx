@@ -14,6 +14,15 @@ const leadOptions: AlertPreferences['leadMinutes'][] = [5, 10, 15, 20, 30];
 export default function SettingsScreen() {
   const theme = useAppTheme();
   const [preferences, setPreferences] = usePreferences();
+  const dataSource = process.env.EXPO_PUBLIC_NOWCAST_API_URL
+    ? {
+        title: 'Weathercast forecast service',
+        body: 'Weathercast combines configured weather sources and returns the data tier and limitations with each forecast.',
+      }
+    : {
+        title: 'Open-Meteo',
+        body: 'Worldwide 15-minute numerical guidance for evaluation builds. Weather data by Open-Meteo.com.',
+      };
 
   const setAlerts = async (enabled: boolean) => {
     if (enabled && !await requestNotificationPermission()) {
@@ -24,12 +33,30 @@ export default function SettingsScreen() {
     setPreferences({ ...preferences, alerts: { ...preferences.alerts, enabled } });
   };
 
+  const deleteLocalData = async () => {
+    await syncScheduledAlert(null).catch(() => undefined);
+    storage.clearAll();
+    router.replace('/onboarding');
+  };
+
+  const confirmDeleteLocalData = () => {
+    Alert.alert('Delete local data?', 'This removes saved places, preferences, alerts, and cached forecasts from this device.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: deleteLocalData },
+    ]);
+  };
+
   return (
     <Screen>
       <Section title="Rain alerts">
         <Group>
           <SettingRow title="Alert me" body="Schedule an on-device alert from the latest forecast.">
-            <Switch value={preferences.alerts.enabled} onValueChange={setAlerts} />
+            <Switch
+              accessibilityLabel="Rain alerts"
+              accessibilityHint="Schedules a local alert from the latest forecast"
+              value={preferences.alerts.enabled}
+              onValueChange={setAlerts}
+            />
           </SettingRow>
           <Divider />
           <View style={{ padding: 16, gap: 10 }}>
@@ -54,13 +81,15 @@ export default function SettingsScreen() {
           <Divider />
           <SettingRow title="Moderate rain or heavier" body="Skip trace and light-rain alerts.">
             <Switch
+              accessibilityLabel="Moderate rain or heavier only"
+              accessibilityHint="Skips trace and light-rain alerts"
               value={preferences.alerts.significantOnly}
               onValueChange={(significantOnly) => setPreferences({ ...preferences, alerts: { ...preferences.alerts, significantOnly } })}
             />
           </SettingRow>
         </Group>
         <Text selectable style={{ color: theme.secondaryText, fontSize: 13, lineHeight: 19 }}>
-          Local alerts refresh when the app fetches a forecast. Reliable sleeping-device updates require the production push service described in the architecture docs.
+          Alerts update after Weathercast refreshes the forecast. Delivery may be delayed by device battery settings.
         </Text>
       </Section>
 
@@ -87,10 +116,7 @@ export default function SettingsScreen() {
           <Divider />
           <Pressable
             accessibilityRole="button"
-            onPress={() => Alert.alert('Delete local data?', 'This removes saved places, preferences, alerts, and cached forecasts from this device.', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Delete', style: 'destructive', onPress: () => { storage.clearAll(); router.replace('/onboarding'); } },
-            ])}
+            onPress={confirmDeleteLocalData}
             style={{ minHeight: 56, padding: 16, justifyContent: 'center' }}
           >
             <Text style={{ color: theme.destructive, fontSize: 16, fontWeight: '700' }}>Delete local data</Text>
@@ -101,8 +127,8 @@ export default function SettingsScreen() {
       <Section title="Data sources">
         <Group>
           <View style={{ padding: 16, gap: spacing.xs }}>
-            <Text selectable style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>Open-Meteo</Text>
-            <Text selectable style={{ color: theme.secondaryText, lineHeight: 21 }}>Worldwide 15-minute numerical guidance in the default build. Weather data by Open-Meteo.com.</Text>
+            <Text selectable style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>{dataSource.title}</Text>
+            <Text selectable style={{ color: theme.secondaryText, lineHeight: 21 }}>{dataSource.body}</Text>
           </View>
         </Group>
       </Section>

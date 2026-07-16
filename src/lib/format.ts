@@ -7,6 +7,11 @@ export function formatRelativeUpdate(issuedAt: string, now = new Date()) {
   return `Updated ${minutes} minutes ago`;
 }
 
+export function formatForecastFreshness(issuedAt: string, isConnected: boolean | null, now = new Date()) {
+  const relative = formatRelativeUpdate(issuedAt, now);
+  return isConnected === false ? `Cached forecast · ${relative}` : relative;
+}
+
 export function formatTime(value: string) {
   return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(value));
 }
