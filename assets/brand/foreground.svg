@@ -1,6 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <g transform="translate(256 256) scale(.68) translate(-256 -256)">
-    <path fill="#FFFFFF" fill-rule="evenodd" d="M256 55c-121 0-219 96-219 215 0 145 160 266 202 295 10 7 23 7 33 0 42-29 202-150 202-295 0-119-98-215-218-215Zm0 91c-71 0-128 56-128 125s57 125 128 125 128-56 128-125-57-125-128-125Z" transform="translate(0 -54) scale(1 .96)"/>
-    <path fill="#FFFFFF" d="M256 161c-30 46-55 75-55 110 0 31 24 55 55 55s55-24 55-55c0-35-25-64-55-110Z"/>
+  <g fill="none" stroke-linecap="round">
+    <circle cx="256" cy="256" r="194" stroke="#1B6DE1" stroke-width="3" opacity=".72"/>
+    <circle cx="256" cy="256" r="148" stroke="#13CAFF" stroke-width="8" opacity=".72"/>
+    <path d="M256 26v90M256 396v90M26 256h90M396 256h90" stroke="#168CFF" stroke-width="3" opacity=".7"/>
   </g>
+  <path fill="#FFFFFF" d="M256 147c-40 60-77 101-77 152 0 46 35 83 77 83s77-37 77-83c0-51-37-92-77-152Z"/>
+  <path fill="#A7EFFF" d="M256 168c-17 27-33 48-33 71 0 16 10 29 22 34 4-34 10-65 11-105Z"/>
 </svg>

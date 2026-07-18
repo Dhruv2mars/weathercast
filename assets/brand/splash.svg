@@ -1,4 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <path fill="#FFFFFF" fill-rule="evenodd" d="M256 20C126 20 20 124 20 252c0 156 173 286 218 317 11 8 25 8 36 0 45-31 218-161 218-317C492 124 386 20 256 20Zm0 98c-77 0-138 60-138 135s61 135 138 135 138-60 138-135-61-135-138-135Z" transform="translate(0 -40) scale(1 .92)"/>
-  <path fill="#FFFFFF" d="M256 161c-32 49-59 80-59 118 0 33 26 59 59 59s59-26 59-59c0-38-27-69-59-118Z"/>
+  <defs>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(256 270) rotate(90) scale(180)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#19D9FF" stop-opacity=".65"/>
+      <stop offset="1" stop-color="#0A58E8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="drop" x1="218" y1="150" x2="318" y2="370" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset=".52" stop-color="#A7EFFF"/>
+      <stop offset="1" stop-color="#0589F4"/>
+    </linearGradient>
+  </defs>
+  <circle cx="256" cy="270" r="178" fill="url(#glow)"/>
+  <path fill="url(#drop)" stroke="#F7FDFF" stroke-width="5" d="M256 128c-40 60-77 101-77 152 0 46 35 83 77 83s77-37 77-83c0-51-37-92-77-152Z"/>
+  <path fill="#FFFFFF" fill-opacity=".62" d="M256 154c-17 27-33 48-33 71 0 16 10 29 22 34 4-34 10-65 11-105Z"/>
 </svg>
