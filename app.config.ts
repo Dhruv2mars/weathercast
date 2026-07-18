@@ -1,7 +1,5 @@
 import type { ExpoConfig } from 'expo/config';
 
-const easProjectId = 'caf9584b-fccf-4cee-8098-ee3e11c4e5c6';
-
 export type ProductionClientConfig = {
   nowcastApiUrl: string;
   radarManifestUrl: string;
@@ -59,10 +57,7 @@ export default (): ExpoConfig => {
     scheme: 'weathercast',
     userInterfaceStyle: 'automatic',
     runtimeVersion: { policy: 'appVersion' },
-    updates: {
-      url: `https://u.expo.dev/${easProjectId}`,
-      fallbackToCacheTimeout: 0,
-    },
+    updates: { fallbackToCacheTimeout: 0 },
     ios: {
       icon: './assets/expo.icon',
       bundleIdentifier: 'com.dhruv2mars.weathercast',
@@ -146,7 +141,7 @@ export default (): ExpoConfig => {
     },
     extra: {
       router: {},
-      eas: { projectId: easProjectId },
+      eas: { projectId: 'caf9584b-fccf-4cee-8098-ee3e11c4e5c6' },
       legal: {
         privacyPolicyUrl: process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL,
         termsUrl: process.env.EXPO_PUBLIC_TERMS_URL,

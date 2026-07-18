@@ -22,7 +22,7 @@ describe('validateProductionClientConfig', () => {
     expect(() => validateProductionClientConfig({ ...valid, EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: 'replace-me' })).toThrow();
   });
 
-  test('hardens Android local data and configures production updates', () => {
+  test('hardens Android local data', () => {
     const config = getExpoConfig();
 
     expect(config.android?.allowBackup).toBe(false);
@@ -31,6 +31,5 @@ describe('validateProductionClientConfig', () => {
       'android.permission.WRITE_EXTERNAL_STORAGE',
       'android.permission.SYSTEM_ALERT_WINDOW',
     ]);
-    expect(config.updates?.url).toBe('https://u.expo.dev/caf9584b-fccf-4cee-8098-ee3e11c4e5c6');
   });
 });
