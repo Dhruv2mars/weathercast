@@ -68,6 +68,13 @@ export default function NowScreen() {
       return;
     }
 
+    // Expired cached/placeholder forecasts must clear OS alerts even while retaining
+    // through bootstrap/refresh for non-expired same-context data.
+    if (nowcast.expired) {
+      syncScheduledAlert(null).catch(() => undefined);
+      return;
+    }
+
     // Retain through placeholder bootstrap, in-flight refresh, and same-context errors.
     if (nowcastQuery.isPlaceholderData || nowcastQuery.isFetching || nowcastQuery.isError) return;
 
