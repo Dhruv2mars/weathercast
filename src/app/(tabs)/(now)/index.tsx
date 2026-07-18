@@ -36,9 +36,13 @@ export default function NowScreen() {
   );
 
   useEffect(() => {
-    const plan = hasUsableForecast && nowcast ? getAlertPlan(nowcast, preferences.alerts) : null;
-    syncScheduledAlert(plan).catch(() => undefined);
-  }, [hasUsableForecast, nowcast, nowcastQuery.isError, nowcastQuery.isFetching, nowcastQuery.isPlaceholderData, nowcastQuery.isStale, preferences.alerts, selectedPlaceKey]);
+    if (!preferences.alerts.enabled || !selected.place || !nowcast || nowcastQuery.isPlaceholderData) {
+      syncScheduledAlert(null).catch(() => undefined);
+      return;
+    }
+    if (nowcastQuery.isFetching || nowcastQuery.isError) return;
+    syncScheduledAlert(getAlertPlan(nowcast, preferences.alerts)).catch(() => undefined);
+  }, [hasUsableForecast, nowcast, nowcastQuery.isError, nowcastQuery.isFetching, nowcastQuery.isPlaceholderData, nowcastQuery.isStale, preferences.alerts, selected.place, selectedPlaceKey]);
 
   if (!preferences.onboardingComplete) return <Redirect href="/onboarding" />;
 
