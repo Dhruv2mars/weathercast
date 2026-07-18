@@ -3,20 +3,33 @@ import { z } from 'zod';
 import { getJson } from '@/services/http';
 import type { Coordinates, NormalizedForecast } from '@/types/weather';
 
-const arrayOfNumbers = z.array(z.number().nullable()).transform((values) => values.map((value) => value ?? 0));
 const responseSchema = z.object({
   timezone: z.string(),
   minutely_15: z.object({
-    time: z.array(z.number()),
-    precipitation: arrayOfNumbers,
-    rain: arrayOfNumbers,
-    showers: arrayOfNumbers,
-    weather_code: arrayOfNumbers,
+    time: z.array(z.number()).min(8),
+    precipitation: z.array(z.number().nonnegative()).min(8),
+    rain: z.array(z.number().nonnegative()).min(8),
+    showers: z.array(z.number().nonnegative()).min(8),
+    weather_code: z.array(z.number().int()).min(8),
   }),
   hourly: z.object({
-    time: z.array(z.number()),
-    precipitation_probability: arrayOfNumbers,
+    time: z.array(z.number()).min(1),
+    precipitation_probability: z.array(z.number().min(0).max(100)).min(1),
   }),
+}).superRefine((value, context) => {
+  const minuteLengths = [
+    value.minutely_15.time.length,
+    value.minutely_15.precipitation.length,
+    value.minutely_15.rain.length,
+    value.minutely_15.showers.length,
+    value.minutely_15.weather_code.length,
+  ];
+  if (new Set(minuteLengths).size !== 1) {
+    context.addIssue({ code: 'custom', path: ['minutely_15'], message: 'Minutely forecast arrays must have equal lengths.' });
+  }
+  if (value.hourly.time.length !== value.hourly.precipitation_probability.length) {
+    context.addIssue({ code: 'custom', path: ['hourly'], message: 'Hourly forecast arrays must have equal lengths.' });
+  }
 });
 
 function nearestProbability(time: number, hourlyTimes: number[], probabilities: number[]) {

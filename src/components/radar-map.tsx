@@ -35,6 +35,7 @@ export function RadarMap({ place, manifest }: { place: Place; manifest: RadarMan
 
   return (
     <MapView
+      key={`${place.id}:${place.latitude}:${place.longitude}`}
       style={{ flex: 1 }}
       initialRegion={{
         latitude: place.latitude,

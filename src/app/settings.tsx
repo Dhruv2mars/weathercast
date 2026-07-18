@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { Alert, Pressable, Switch, Text, View } from 'react-native';
 
@@ -5,38 +6,41 @@ import { Screen } from '@/components/screen';
 import { Divider, Group, Section } from '@/components/section';
 import { spacing, useAppTheme } from '@/constants/theme';
 import { usePreferences } from '@/hooks/use-preferences';
-import { storage } from '@/lib/storage';
+import { forecastSourceInfo } from '@/lib/client-config';
 import { requestNotificationPermission, syncScheduledAlert } from '@/services/notifications';
+import { resetAppData } from '@/services/reset-app-data';
 import type { AlertPreferences } from '@/types/weather';
 
 const leadOptions: AlertPreferences['leadMinutes'][] = [5, 10, 15, 20, 30];
 
 export default function SettingsScreen() {
   const theme = useAppTheme();
+  const queryClient = useQueryClient();
   const [preferences, setPreferences] = usePreferences();
-  const dataSource = process.env.EXPO_PUBLIC_NOWCAST_API_URL
-    ? {
-        title: 'Weathercast forecast service',
-        body: 'Weathercast combines configured weather sources and returns the data tier and limitations with each forecast.',
-      }
-    : {
-        title: 'Open-Meteo',
-        body: 'Worldwide 15-minute numerical guidance for evaluation builds. Weather data by Open-Meteo.com.',
-      };
 
   const setAlerts = async (enabled: boolean) => {
     if (enabled && !await requestNotificationPermission()) {
       Alert.alert('Notifications are off', 'Enable notifications in system settings when you want rain alerts.');
       return;
     }
-    if (!enabled) await syncScheduledAlert(null);
+    if (!enabled) {
+      try {
+        await syncScheduledAlert(null);
+      } catch {
+        Alert.alert('Could not disable alerts', 'Weathercast could not cancel the existing rain alert. Try again.');
+        return;
+      }
+    }
     setPreferences({ ...preferences, alerts: { ...preferences.alerts, enabled } });
   };
 
   const deleteLocalData = async () => {
-    await syncScheduledAlert(null).catch(() => undefined);
-    storage.clearAll();
-    router.replace('/onboarding');
+    try {
+      await resetAppData(queryClient);
+      router.replace('/onboarding');
+    } catch {
+      Alert.alert('Could not delete all data', 'Weathercast could not cancel the existing rain alert. Try again.');
+    }
   };
 
   const confirmDeleteLocalData = () => {
@@ -89,7 +93,7 @@ export default function SettingsScreen() {
           </SettingRow>
         </Group>
         <Text selectable style={{ color: theme.secondaryText, fontSize: 13, lineHeight: 19 }}>
-          Alerts update after Weathercast refreshes the forecast. Delivery may be delayed by device battery settings.
+          Alerts use the latest forecast fetched while Weathercast is open. If the app has not refreshed recently, an alert may be stale or unavailable.
         </Text>
       </Section>
 
@@ -127,8 +131,8 @@ export default function SettingsScreen() {
       <Section title="Data sources">
         <Group>
           <View style={{ padding: 16, gap: spacing.xs }}>
-            <Text selectable style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>{dataSource.title}</Text>
-            <Text selectable style={{ color: theme.secondaryText, lineHeight: 21 }}>{dataSource.body}</Text>
+            <Text selectable style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>{forecastSourceInfo.title}</Text>
+            <Text selectable style={{ color: theme.secondaryText, lineHeight: 21 }}>{forecastSourceInfo.body}</Text>
           </View>
         </Group>
       </Section>

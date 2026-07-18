@@ -13,7 +13,7 @@ import { getAlertPlan } from '@/domain/alerts';
 import { useNowcast } from '@/hooks/use-nowcast';
 import { usePreferences } from '@/hooks/use-preferences';
 import { useSelectedPlace } from '@/hooks/use-selected-place';
-import { formatForecastFreshness, formatTime, intensityLabel } from '@/lib/format';
+import { formatForecastFreshness, formatRelativeUpdate, formatTime, intensityLabel } from '@/lib/format';
 import { syncScheduledAlert } from '@/services/notifications';
 
 export default function NowScreen() {
@@ -23,11 +23,22 @@ export default function NowScreen() {
   const selected = useSelectedPlace();
   const nowcastQuery = useNowcast(selected.place);
   const nowcast = nowcastQuery.data;
+  const selectedPlaceKey = selected.place
+    ? `${selected.place.id}:${selected.place.latitude}:${selected.place.longitude}`
+    : 'none';
+  const hasUsableForecast = Boolean(
+    selected.place
+      && nowcast
+      && !nowcastQuery.isPlaceholderData
+      && !nowcastQuery.isFetching
+      && !nowcastQuery.isError
+      && !nowcastQuery.isStale,
+  );
 
   useEffect(() => {
-    if (!nowcast) return;
-    syncScheduledAlert(getAlertPlan(nowcast, preferences.alerts)).catch(() => undefined);
-  }, [nowcast, preferences.alerts]);
+    const plan = hasUsableForecast && nowcast ? getAlertPlan(nowcast, preferences.alerts) : null;
+    syncScheduledAlert(plan).catch(() => undefined);
+  }, [hasUsableForecast, nowcast, nowcastQuery.isError, nowcastQuery.isFetching, nowcastQuery.isPlaceholderData, nowcastQuery.isStale, preferences.alerts, selectedPlaceKey]);
 
   if (!preferences.onboardingComplete) return <Redirect href="/onboarding" />;
 
@@ -42,10 +53,17 @@ export default function NowScreen() {
         ),
       }} />
       <Screen refreshControl={<RefreshControl refreshing={nowcastQuery.isFetching && !nowcastQuery.isLoading} onRefresh={() => nowcastQuery.refetch()} tintColor={theme.accent} />}>
-        {!network.isConnected && (
+        {network.isConnected === false && (
           <View accessibilityRole="alert" style={{ backgroundColor: theme.elevated, borderRadius: 12, padding: 12 }}>
             <Text selectable style={{ color: theme.text, fontWeight: '700' }}>Offline</Text>
             <Text selectable style={{ color: theme.secondaryText }}>Showing the last available forecast. Timing may be stale.</Text>
+          </View>
+        )}
+
+        {selected.place?.locationSource === 'recent' && (
+          <View accessibilityRole="alert" style={{ backgroundColor: theme.elevated, borderRadius: 12, padding: 12 }}>
+            <Text selectable style={{ color: theme.text, fontWeight: '700' }}>Using a recent location</Text>
+            <Text selectable style={{ color: theme.secondaryText }}>A fresh GPS fix was unavailable, so this forecast uses a location captured within the last 2 minutes.</Text>
           </View>
         )}
 
@@ -68,6 +86,16 @@ export default function NowScreen() {
             <Text selectable style={{ color: theme.text, fontSize: 24, fontWeight: '800' }}>Forecast unavailable</Text>
             <Text selectable style={{ color: theme.secondaryText, fontSize: 16, lineHeight: 23 }}>
               {nowcastQuery.error instanceof Error ? nowcastQuery.error.message : 'The weather service could not be reached.'}
+            </Text>
+            <AppButton onPress={() => nowcastQuery.refetch()}>Try again</AppButton>
+          </View>
+        )}
+
+        {selected.place && network.isConnected === false && !nowcast && !nowcastQuery.isLoading && !nowcastQuery.isError && (
+          <View accessibilityRole="alert" style={{ gap: spacing.md }}>
+            <Text selectable style={{ color: theme.text, fontSize: 24, fontWeight: '800' }}>No forecast cached</Text>
+            <Text selectable style={{ color: theme.secondaryText, fontSize: 16, lineHeight: 23 }}>
+              Reconnect to fetch a forecast for this place.
             </Text>
             <AppButton onPress={() => nowcastQuery.refetch()}>Try again</AppButton>
           </View>
@@ -105,7 +133,11 @@ export default function NowScreen() {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
               <View style={{ flexGrow: 1 }}>
                 <AppButton onPress={() => router.push('/settings')} variant={preferences.alerts.enabled ? 'secondary' : 'primary'}>
-                  {preferences.alerts.enabled ? `Alert set · ${preferences.alerts.leadMinutes} min before` : 'Alert me'}
+                  {!preferences.alerts.enabled
+                    ? 'Alert me'
+                    : nowcast.calibrationStatus === 'uncalibrated'
+                      ? 'Alerts unavailable for fallback'
+                      : 'Alerts enabled'}
                 </AppButton>
               </View>
             </View>
@@ -120,7 +152,9 @@ export default function NowScreen() {
                 <View style={{ padding: 16, gap: 4 }}>
                   <Text selectable style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>Freshness</Text>
                   <Text selectable style={{ color: theme.secondaryText, fontSize: 15 }}>
-                    {formatForecastFreshness(nowcast.generatedAt ?? nowcast.issuedAt, network.isConnected)}
+                    {nowcast.sourceDataTime
+                      ? formatForecastFreshness(nowcast.sourceDataTime, network.isConnected)
+                      : `Service update · ${formatRelativeUpdate(nowcast.generatedAt ?? nowcast.issuedAt)}`}
                   </Text>
                   {!nowcast.sourceDataTime && nowcast.forecastId && (
                     <Text selectable style={{ color: theme.secondaryText, fontSize: 13 }}>Provider source timestamp unavailable</Text>

@@ -46,13 +46,20 @@ export async function requestNotificationPermission() {
   return requested.granted;
 }
 
-export async function syncScheduledAlert(plan: AlertPlan | null) {
+let alertSyncQueue: Promise<void> = Promise.resolve();
+
+async function performAlertSync(plan: AlertPlan | null) {
   if (isExpoGo()) return;
   const Notifications = await getNotifications();
   const previousId = localStorage.getItem(ALERT_ID_KEY);
   if (previousId) {
-    await Notifications.cancelScheduledNotificationAsync(previousId).catch(() => undefined);
-    localStorage.removeItem(ALERT_ID_KEY);
+    try {
+      await Notifications.cancelScheduledNotificationAsync(previousId);
+    } catch {
+      // Native cancellation can fail after the OS has already removed an alert.
+    } finally {
+      localStorage.removeItem(ALERT_ID_KEY);
+    }
   }
   if (!plan) return;
   const id = await Notifications.scheduleNotificationAsync({
@@ -64,4 +71,10 @@ export async function syncScheduledAlert(plan: AlertPlan | null) {
     },
   });
   localStorage.setItem(ALERT_ID_KEY, id);
+}
+
+export function syncScheduledAlert(plan: AlertPlan | null) {
+  const operation = alertSyncQueue.then(() => performAlertSync(plan));
+  alertSyncQueue = operation.catch(() => undefined);
+  return operation;
 }

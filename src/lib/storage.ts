@@ -1,6 +1,7 @@
 import 'expo-sqlite/localStorage/install';
 
 import { parsePreferences, DEFAULT_PREFERENCES } from '@/lib/preferences';
+import { isCachedNowcast, parseStoredPlaces } from '@/lib/storage-validation';
 import type { Nowcast, Place, Preferences } from '@/types/weather';
 
 const KEYS = {
@@ -40,8 +41,7 @@ export const storage = {
     return () => set.delete(listener);
   },
   getPlaces(): Place[] {
-    const places = readJson<Place[]>(KEYS.places, []);
-    return Array.isArray(places) ? places : [];
+    return parseStoredPlaces(readJson<unknown>(KEYS.places, []));
   },
   setPlaces(places: Place[]) {
     localStorage.setItem(KEYS.places, JSON.stringify(places));
@@ -54,7 +54,10 @@ export const storage = {
     return () => set.delete(listener);
   },
   getNowcast(locationKey: string): Nowcast | undefined {
-    return readJson<Record<string, Nowcast>>(KEYS.nowcast, {})[locationKey];
+    const cache = readJson<unknown>(KEYS.nowcast, {});
+    if (!cache || typeof cache !== 'object' || Array.isArray(cache)) return undefined;
+    const nowcast = (cache as Record<string, unknown>)[locationKey];
+    return isCachedNowcast(nowcast) ? nowcast : undefined;
   },
   setNowcast(locationKey: string, nowcast: Nowcast) {
     const cache = readJson<Record<string, Nowcast>>(KEYS.nowcast, {});
