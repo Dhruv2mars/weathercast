@@ -8,6 +8,7 @@ type AssetSpec = {
 const root = process.cwd();
 const assets: AssetSpec[] = [
   { path: 'assets/images/icon.png', width: 1024, height: 1024 },
+  { path: 'assets/images/ios-icon.png', width: 1024, height: 1024, colorType: 2 },
   { path: 'assets/images/ui-mark.png', width: 192, height: 192 },
   { path: 'assets/images/android-icon-background.png', width: 512, height: 512, colorType: 2 },
   { path: 'assets/images/android-icon-foreground.png', width: 512, height: 512 },
@@ -24,7 +25,8 @@ function absolute(path: string) {
 
 async function readPng(path: string) {
   const bytes = new Uint8Array(await Bun.file(absolute(path)).arrayBuffer());
-  if (bytes.length < 26 || String.fromCharCode(...bytes.slice(1, 4)) !== 'PNG') {
+  const pngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length < 33 || !pngSignature.every((byte, index) => bytes[index] === byte)) {
     throw new Error(`${path}: not a PNG`);
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -68,12 +70,9 @@ const appConfig = await Bun.file(absolute('app.config.ts')).text();
 const onboarding = await Bun.file(absolute('src/app/onboarding.tsx')).text();
 const webTabs = await Bun.file(absolute('src/components/app-tabs.web.tsx')).text();
 
-const iconPath = "icon: './assets/images/icon.png'";
-if (appConfig.split(iconPath).length - 1 !== 2) {
-  failures.push('app.config.ts: expected top-level and iOS icons to use icon.png');
-}
-
 for (const expected of [
+  "icon: './assets/images/icon.png'",
+  "icon: './assets/images/ios-icon.png'",
   "foregroundImage: './assets/images/android-icon-foreground.png'",
   "backgroundImage: './assets/images/android-icon-background.png'",
   "monochromeImage: './assets/images/android-icon-monochrome.png'",
