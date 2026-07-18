@@ -1,4 +1,3 @@
-import { useQueryClient } from '@tanstack/react-query';
 import { router, Stack } from 'expo-router';
 import { Alert, Pressable, Text, View } from 'react-native';
 
@@ -8,9 +7,8 @@ import { Divider, Group, Section } from '@/components/section';
 import { spacing, useAppTheme } from '@/constants/theme';
 import { usePlaces } from '@/hooks/use-places';
 import { usePreferences } from '@/hooks/use-preferences';
-import { cacheCurrentPlace } from '@/lib/current-place-cache';
+import { useSelectCurrentPlace } from '@/hooks/use-select-current-place';
 import { DEFAULT_PREFERENCES } from '@/lib/preferences';
-import { requestCurrentPlace } from '@/services/location';
 import { syncScheduledAlert } from '@/services/notifications';
 import type { Place } from '@/types/weather';
 
@@ -22,8 +20,8 @@ const locationUnavailableMessage = 'Weathercast could not get a location fix. Mo
 
 export default function PlacesScreen() {
   const theme = useAppTheme();
-  const queryClient = useQueryClient();
   const { places, remove } = usePlaces();
+  const selectCurrentPlace = useSelectCurrentPlace();
   const [preferences, setPreferences] = usePreferences();
 
   const select = (place: Place) => {
@@ -33,22 +31,26 @@ export default function PlacesScreen() {
 
   const selectCurrent = async () => {
     try {
-      const place = await requestCurrentPlace();
-      cacheCurrentPlace(queryClient, place);
-      setPreferences({ ...preferences, selectedPlaceId: 'current', onboardingComplete: true });
-      router.navigate('/');
+      const result = await selectCurrentPlace();
+      if (result.committed) router.navigate('/');
     } catch (error) {
       const code = error instanceof Error ? error.message : '';
       Alert.alert('Location unavailable', locationErrorMessages[code] ?? locationUnavailableMessage);
     }
   };
 
-  const removePlace = (place: Place) => {
+  const removePlace = async (place: Place) => {
+    if (preferences.selectedPlaceId === place.id) {
+      try {
+        await syncScheduledAlert(null);
+      } catch {
+        Alert.alert('Could not remove place', 'Weathercast could not cancel the existing rain alert. Try again.');
+        return;
+      }
+      const nextPlace = places.find((item) => item.id !== place.id);
+      setPreferences({ ...preferences, selectedPlaceId: nextPlace?.id ?? DEFAULT_PREFERENCES.selectedPlaceId });
+    }
     remove(place.id);
-    if (preferences.selectedPlaceId !== place.id) return;
-    syncScheduledAlert(null).catch(() => undefined);
-    const nextPlace = places.find((item) => item.id !== place.id);
-    setPreferences({ ...preferences, selectedPlaceId: nextPlace?.id ?? DEFAULT_PREFERENCES.selectedPlaceId });
   };
 
   const confirmRemove = (place: Place) => {

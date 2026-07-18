@@ -13,6 +13,8 @@ export type Place = Coordinates & {
   admin?: string;
   country?: string;
   source: 'current' | 'search' | 'saved';
+  locationSource?: 'live' | 'recent';
+  locationTimestamp?: string;
 };
 
 export type ForecastInterval = {

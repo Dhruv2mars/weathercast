@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 
-import { currentPlaceQueryKey } from '@/lib/current-place-cache';
+import { currentPlaceQueryKey } from '@/lib/current-place-query';
 import { hasLocationPermission, readCurrentPlace } from '@/services/location';
 
 export function useCurrentPlace(enabled: boolean) {
@@ -11,7 +11,7 @@ export function useCurrentPlace(enabled: boolean) {
       return readCurrentPlace();
     },
     enabled,
-    staleTime: 5 * 60_000,
+    staleTime: 2 * 60_000,
     retry: false,
   });
 }
