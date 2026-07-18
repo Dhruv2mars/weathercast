@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { getAlertPlan } from '@/domain/alerts';
+import { getAlertPlan, isNowcastExpired } from '@/domain/alerts';
 import type { Nowcast } from '@/types/weather';
 
 const now = new Date('2026-07-10T10:00:00.000Z');
@@ -26,6 +26,14 @@ const base: Nowcast = {
     durationMinutes: 30,
   },
 };
+
+describe('isNowcastExpired', () => {
+  test('treats explicit expired markers and elapsed validUntil as expired', () => {
+    expect(isNowcastExpired({ ...base, expired: true }, now)).toBe(true);
+    expect(isNowcastExpired({ ...base, validUntil: '2026-07-10T09:59:00.000Z' }, now)).toBe(true);
+    expect(isNowcastExpired(base, now)).toBe(false);
+  });
+});
 
 describe('getAlertPlan', () => {
   test('schedules before onset using requested lead time', () => {

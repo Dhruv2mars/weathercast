@@ -9,7 +9,7 @@ import { RainTimeline } from '@/components/rain-timeline';
 import { Screen } from '@/components/screen';
 import { Divider, Group, Section } from '@/components/section';
 import { spacing, useAppTheme } from '@/constants/theme';
-import { getAlertPlan } from '@/domain/alerts';
+import { getAlertPlan, isNowcastExpired } from '@/domain/alerts';
 import { useNowcast } from '@/hooks/use-nowcast';
 import { usePreferences } from '@/hooks/use-preferences';
 import { useSelectedPlace } from '@/hooks/use-selected-place';
@@ -68,9 +68,9 @@ export default function NowScreen() {
       return;
     }
 
-    // Expired cached/placeholder forecasts must clear OS alerts even while retaining
-    // through bootstrap/refresh for non-expired same-context data.
-    if (nowcast.expired) {
+    // Expired forecasts (cached marker or live validUntil) must clear OS alerts even
+    // while retaining through bootstrap/refresh for non-expired same-context data.
+    if (isNowcastExpired(nowcast)) {
       syncScheduledAlert(null).catch(() => undefined);
       return;
     }
