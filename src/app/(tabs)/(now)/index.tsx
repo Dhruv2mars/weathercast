@@ -112,7 +112,7 @@ export default function NowScreen() {
           </View>
         )}
 
-        {nowcast?.expired && (
+        {nowcast && isNowcastExpired(nowcast) && (
           <View accessibilityRole="alert" style={{ backgroundColor: theme.elevated, borderRadius: 12, padding: 12 }}>
             <Text selectable style={{ color: theme.text, fontWeight: '700' }}>Forecast expired</Text>
             <Text selectable style={{ color: theme.secondaryText }}>Reconnect to refresh this forecast. Alerts are paused until new data arrives.</Text>
