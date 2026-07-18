@@ -5,7 +5,7 @@ import getExpoConfig, { validateProductionClientConfig } from './app.config';
 const valid = {
   EXPO_PUBLIC_NOWCAST_API_URL: 'https://api.weathercast.app',
   EXPO_PUBLIC_RADAR_MANIFEST_URL: 'https://radar.weathercast.app/v1/manifest.json',
-  EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: 'restricted-key-at-least-twenty-characters',
+  EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: 'AIzaSyA12345678901234567890123456789012',
   EXPO_PUBLIC_PRIVACY_POLICY_URL: 'https://weathercast.app/privacy',
   EXPO_PUBLIC_TERMS_URL: 'https://weathercast.app/terms',
   EXPO_PUBLIC_SUPPORT_URL: 'https://weathercast.app/support',

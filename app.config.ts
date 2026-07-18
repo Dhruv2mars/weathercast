@@ -26,7 +26,7 @@ function httpsUrl(name: string, value: string | undefined) {
 
 export function validateProductionClientConfig(environment: Record<string, string | undefined>): ProductionClientConfig {
   const googleMapsApiKey = environment.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
-  if (!googleMapsApiKey || googleMapsApiKey.length < 20 || /replace|example/i.test(googleMapsApiKey)) {
+  if (!googleMapsApiKey || !/^AIza[0-9A-Za-z_-]{35}$/.test(googleMapsApiKey)) {
     throw new Error('EXPO_PUBLIC_GOOGLE_MAPS_API_KEY must be a restricted production Android key.');
   }
   return {
