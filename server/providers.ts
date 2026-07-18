@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { normalizedUpstreamSchema } from './contracts';
 
 const REQUIRED_INTERVALS = 8;
+const SLOT_SECONDS = 15 * 60;
 const nullableMeasurements = z.array(z.number().nonnegative().nullable()).min(REQUIRED_INTERVALS);
 const nullableWeatherCodes = z.array(z.number().int().nullable()).min(REQUIRED_INTERVALS);
 const nullableProbabilities = z.array(z.number().min(0).max(100).nullable()).min(1);
@@ -33,18 +34,6 @@ const openMeteoSchema = z.object({
   }
   if (value.hourly.time.length !== value.hourly.precipitation_probability.length) {
     context.addIssue({ code: 'custom', path: ['hourly'], message: 'Hourly forecast arrays must have equal lengths.' });
-  }
-  for (let index = 0; index < REQUIRED_INTERVALS; index += 1) {
-    const incomplete = [
-      value.minutely_15.precipitation[index],
-      value.minutely_15.rain[index],
-      value.minutely_15.showers[index],
-      value.minutely_15.weather_code[index],
-    ].some((measurement) => measurement === null || measurement === undefined);
-    if (incomplete) {
-      context.addIssue({ code: 'custom', path: ['minutely_15'], message: 'Forecast measurements must be complete for the required horizon.' });
-      break;
-    }
   }
 });
 
@@ -114,7 +103,21 @@ export class OpenMeteoEvaluationProvider implements ForecastProvider {
       headers: { Accept: 'application/json', 'User-Agent': 'Weathercast-Evaluation/1.0' },
       signal,
     }));
-    const issuedAt = new Date().toISOString();
+    const now = new Date();
+    const nowSec = Math.floor(now.getTime() / 1000);
+    const startIndex = parsed.minutely_15.time.findIndex((time) => time >= nowSec - SLOT_SECONDS);
+    if (startIndex < 0 || startIndex + REQUIRED_INTERVALS > parsed.minutely_15.time.length) {
+      throw new Error('Weather service returned an unsupported response.');
+    }
+    const horizonIndexes = Array.from({ length: REQUIRED_INTERVALS }, (_, offset) => startIndex + offset);
+    const incomplete = horizonIndexes.some((index) => (
+      parsed.minutely_15.precipitation[index] === null
+      || parsed.minutely_15.rain[index] === null
+      || parsed.minutely_15.showers[index] === null
+      || parsed.minutely_15.weather_code[index] === null
+    ));
+    if (incomplete) throw new Error('Weather service returned an unsupported response.');
+
     return {
       provider: 'open-meteo-evaluation',
       dataTier: 'standard',
@@ -122,17 +125,20 @@ export class OpenMeteoEvaluationProvider implements ForecastProvider {
       spatialResolutionKm: null,
       coverageReason: 'Numerical guidance only; licensed radar and local observations are not configured.',
       forecast: {
-        issuedAt,
+        issuedAt: now.toISOString(),
         timezone: parsed.timezone,
         source: 'Open-Meteo numerical guidance (evaluation)',
-        intervals: parsed.minutely_15.time.slice(0, REQUIRED_INTERVALS).map((time, index) => ({
-          time: new Date(time * 1000).toISOString(),
-          precipitationMm: requiredMeasurement(parsed.minutely_15.precipitation[index]),
-          rainMm: requiredMeasurement(parsed.minutely_15.rain[index]),
-          showersMm: requiredMeasurement(parsed.minutely_15.showers[index]),
-          probability: nearestProbability(time, parsed.hourly.time, parsed.hourly.precipitation_probability),
-          weatherCode: requiredMeasurement(parsed.minutely_15.weather_code[index]),
-        })),
+        intervals: horizonIndexes.map((index) => {
+          const time = parsed.minutely_15.time[index]!;
+          return {
+            time: new Date(time * 1000).toISOString(),
+            precipitationMm: requiredMeasurement(parsed.minutely_15.precipitation[index]),
+            rainMm: requiredMeasurement(parsed.minutely_15.rain[index]),
+            showersMm: requiredMeasurement(parsed.minutely_15.showers[index]),
+            probability: nearestProbability(time, parsed.hourly.time, parsed.hourly.precipitation_probability),
+            weatherCode: requiredMeasurement(parsed.minutely_15.weather_code[index]),
+          };
+        }),
       },
     };
   }

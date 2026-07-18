@@ -4,6 +4,7 @@ import { getJson } from '@/services/http';
 import type { Coordinates, NormalizedForecast } from '@/types/weather';
 
 const REQUIRED_INTERVALS = 8;
+const SLOT_SECONDS = 15 * 60;
 
 const nullableMeasurements = z.array(z.number().nonnegative().nullable()).min(REQUIRED_INTERVALS);
 const nullableWeatherCodes = z.array(z.number().int().nullable()).min(REQUIRED_INTERVALS);
@@ -35,19 +36,6 @@ const responseSchema = z.object({
   if (value.hourly.time.length !== value.hourly.precipitation_probability.length) {
     context.addIssue({ code: 'custom', path: ['hourly'], message: 'Hourly forecast arrays must have equal lengths.' });
   }
-
-  for (let index = 0; index < REQUIRED_INTERVALS; index += 1) {
-    const incomplete = [
-      value.minutely_15.precipitation[index],
-      value.minutely_15.rain[index],
-      value.minutely_15.showers[index],
-      value.minutely_15.weather_code[index],
-    ].some((measurement) => measurement === null || measurement === undefined);
-    if (incomplete) {
-      context.addIssue({ code: 'custom', path: ['minutely_15'], message: 'Forecast measurements must be complete for the required horizon.' });
-      break;
-    }
-  }
 });
 
 function nearestProbability(time: number, hourlyTimes: number[], probabilities: (number | null)[]) {
@@ -70,7 +58,15 @@ function requiredMeasurement(value: number | null | undefined) {
   return value;
 }
 
-export async function fetchOpenMeteoForecast(location: Coordinates, signal?: AbortSignal): Promise<NormalizedForecast> {
+function selectHorizonStart(times: number[], nowSec: number) {
+  return times.findIndex((time) => time >= nowSec - SLOT_SECONDS);
+}
+
+export async function fetchOpenMeteoForecast(
+  location: Coordinates,
+  signal?: AbortSignal,
+  now = new Date(),
+): Promise<NormalizedForecast> {
   const host = process.env.EXPO_PUBLIC_OPEN_METEO_HOST ?? 'https://api.open-meteo.com';
   const params = new URLSearchParams({
     latitude: location.latitude.toFixed(5),
@@ -86,17 +82,35 @@ export async function fetchOpenMeteoForecast(location: Coordinates, signal?: Abo
   if (!parsed.success) throw new Error('Weather service returned an unsupported response.');
 
   const { minutely_15: minuteData, hourly } = parsed.data;
+  const nowSec = Math.floor(now.getTime() / 1000);
+  const startIndex = selectHorizonStart(minuteData.time, nowSec);
+  if (startIndex < 0 || startIndex + REQUIRED_INTERVALS > minuteData.time.length) {
+    throw new Error('Weather service returned an unsupported response.');
+  }
+
+  const horizonIndexes = Array.from({ length: REQUIRED_INTERVALS }, (_, offset) => startIndex + offset);
+  const incomplete = horizonIndexes.some((index) => (
+    minuteData.precipitation[index] === null
+    || minuteData.rain[index] === null
+    || minuteData.showers[index] === null
+    || minuteData.weather_code[index] === null
+  ));
+  if (incomplete) throw new Error('Weather service returned an unsupported response.');
+
   return {
-    issuedAt: new Date().toISOString(),
+    issuedAt: now.toISOString(),
     timezone: parsed.data.timezone,
     source: 'Open-Meteo numerical guidance',
-    intervals: minuteData.time.slice(0, REQUIRED_INTERVALS).map((time, index) => ({
-      time: new Date(time * 1000).toISOString(),
-      precipitationMm: requiredMeasurement(minuteData.precipitation[index]),
-      rainMm: requiredMeasurement(minuteData.rain[index]),
-      showersMm: requiredMeasurement(minuteData.showers[index]),
-      probability: nearestProbability(time, hourly.time, hourly.precipitation_probability),
-      weatherCode: requiredMeasurement(minuteData.weather_code[index]),
-    })),
+    intervals: horizonIndexes.map((index) => {
+      const time = minuteData.time[index]!;
+      return {
+        time: new Date(time * 1000).toISOString(),
+        precipitationMm: requiredMeasurement(minuteData.precipitation[index]),
+        rainMm: requiredMeasurement(minuteData.rain[index]),
+        showersMm: requiredMeasurement(minuteData.showers[index]),
+        probability: nearestProbability(time, hourly.time, hourly.precipitation_probability),
+        weatherCode: requiredMeasurement(minuteData.weather_code[index]),
+      };
+    }),
   };
 }

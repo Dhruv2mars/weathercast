@@ -14,6 +14,7 @@ import { useNowcast } from '@/hooks/use-nowcast';
 import { usePreferences } from '@/hooks/use-preferences';
 import { useSelectedPlace } from '@/hooks/use-selected-place';
 import { formatForecastFreshness, formatRelativeUpdate, formatTime, intensityLabel } from '@/lib/format';
+import { locationKey } from '@/lib/storage';
 import { syncScheduledAlert } from '@/services/notifications';
 
 export default function NowScreen() {
@@ -23,32 +24,37 @@ export default function NowScreen() {
   const selected = useSelectedPlace();
   const nowcastQuery = useNowcast(selected.place);
   const nowcast = nowcastQuery.data;
-  const selectedPlaceKey = selected.place
-    ? `${selected.place.id}:${selected.place.latitude}:${selected.place.longitude}`
+  const alertContextKey = selected.place
+    ? [
+      selected.place.id,
+      locationKey(selected.place.latitude, selected.place.longitude),
+      preferences.alerts.enabled ? 'on' : 'off',
+      String(preferences.alerts.leadMinutes),
+      preferences.alerts.significantOnly ? 'significant' : 'all',
+    ].join(':')
     : 'none';
-  const alertPlaceKeyRef = useRef(selectedPlaceKey);
+  const alertContextRef = useRef(alertContextKey);
 
   useEffect(() => {
-    const placeChanged = alertPlaceKeyRef.current !== selectedPlaceKey;
-    alertPlaceKeyRef.current = selectedPlaceKey;
+    const contextChanged = alertContextRef.current !== alertContextKey;
+    alertContextRef.current = alertContextKey;
 
     if (!preferences.alerts.enabled || !selected.place || !nowcast || nowcastQuery.isPlaceholderData) {
       syncScheduledAlert(null).catch(() => undefined);
       return;
     }
 
-    // Cancel immediately on place change so a prior location's alert cannot linger
-    // through a failed/stale refresh for the newly selected place.
-    if (placeChanged) {
+    // Cancel when place or alert preferences change so an obsolete plan cannot linger
+    // through a failed/stale refresh. Retain only for same-context refresh/error.
+    if (contextChanged) {
       syncScheduledAlert(null).catch(() => undefined);
       if (nowcastQuery.isFetching || nowcastQuery.isError) return;
     } else if (nowcastQuery.isFetching || nowcastQuery.isError) {
-      // Same-place refresh/error: keep the existing scheduled alert.
       return;
     }
 
     syncScheduledAlert(getAlertPlan(nowcast, preferences.alerts)).catch(() => undefined);
-  }, [nowcast, nowcastQuery.isError, nowcastQuery.isFetching, nowcastQuery.isPlaceholderData, preferences.alerts, selected.place, selectedPlaceKey]);
+  }, [alertContextKey, nowcast, nowcastQuery.isError, nowcastQuery.isFetching, nowcastQuery.isPlaceholderData, preferences.alerts, selected.place]);
 
   if (!preferences.onboardingComplete) return <Redirect href="/onboarding" />;
 
