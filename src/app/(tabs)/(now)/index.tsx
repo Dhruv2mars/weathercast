@@ -39,22 +39,35 @@ export default function NowScreen() {
     const contextChanged = alertContextRef.current !== alertContextKey;
     alertContextRef.current = alertContextKey;
 
-    if (!preferences.alerts.enabled || !selected.place || !nowcast || nowcastQuery.isPlaceholderData) {
+    if (!preferences.alerts.enabled) {
       syncScheduledAlert(null).catch(() => undefined);
       return;
     }
 
-    // Cancel when place or alert preferences change so an obsolete plan cannot linger
-    // through a failed/stale refresh. Retain only for same-context refresh/error.
+    // Cancel when place or alert preferences change so an obsolete plan cannot linger.
     if (contextChanged) {
       syncScheduledAlert(null).catch(() => undefined);
-      if (nowcastQuery.isFetching || nowcastQuery.isError) return;
-    } else if (nowcastQuery.isFetching || nowcastQuery.isError) {
+    }
+
+    if (!selected.place) {
+      // Current GPS can be briefly unavailable on relaunch; retain until selection settles.
+      if (selected.isLoading) return;
+      syncScheduledAlert(null).catch(() => undefined);
       return;
     }
 
+    if (!nowcast) {
+      // Retain through initial load; cancel only once we know there is no forecast.
+      if (nowcastQuery.isLoading || nowcastQuery.isFetching || nowcastQuery.isPlaceholderData) return;
+      syncScheduledAlert(null).catch(() => undefined);
+      return;
+    }
+
+    // Retain through placeholder bootstrap, in-flight refresh, and same-context errors.
+    if (nowcastQuery.isPlaceholderData || nowcastQuery.isFetching || nowcastQuery.isError) return;
+
     syncScheduledAlert(getAlertPlan(nowcast, preferences.alerts)).catch(() => undefined);
-  }, [alertContextKey, nowcast, nowcastQuery.isError, nowcastQuery.isFetching, nowcastQuery.isPlaceholderData, preferences.alerts, selected.place]);
+  }, [alertContextKey, nowcast, nowcastQuery.isError, nowcastQuery.isFetching, nowcastQuery.isLoading, nowcastQuery.isPlaceholderData, preferences.alerts, selected.isLoading, selected.place]);
 
   if (!preferences.onboardingComplete) return <Redirect href="/onboarding" />;
 
