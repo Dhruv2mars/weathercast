@@ -36,7 +36,7 @@ export default function WebAppTabs() {
             title: tab.title,
             tabBarAccessibilityLabel: `${tab.title} tab`,
             tabBarIcon: ({ color }) => tab.icon === 'brand'
-              ? <Image accessible={false} source={require('../../assets/images/icon.png')} style={{ width: 22, height: 22, borderRadius: 6, opacity: color === theme.accent ? 1 : 0.62 }} />
+              ? <Image accessible={false} source={require('../../assets/images/ui-mark.png')} style={{ width: 22, height: 22, borderRadius: 6, opacity: color === theme.accent ? 1 : 0.62 }} />
               : <Text style={{ color, fontSize: 20, lineHeight: 22 }}>{tab.icon}</Text>,
           }}
         />
