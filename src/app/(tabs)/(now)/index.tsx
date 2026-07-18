@@ -33,10 +33,15 @@ export default function NowScreen() {
       preferences.alerts.significantOnly ? 'significant' : 'all',
     ].join(':')
     : 'none';
-  const alertContextRef = useRef(alertContextKey);
+  const alertContextRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const contextChanged = alertContextRef.current !== alertContextKey;
+    const previousContext = alertContextRef.current;
+    // First resolution from unset/none (e.g. current GPS bootstrap) must not wipe a
+    // same-session OS alert before placeholder/refresh retention can apply.
+    const contextChanged = previousContext !== null
+      && previousContext !== 'none'
+      && previousContext !== alertContextKey;
     alertContextRef.current = alertContextKey;
 
     if (!preferences.alerts.enabled) {
