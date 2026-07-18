@@ -35,8 +35,8 @@ export default function OnboardingScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.background, paddingTop: insets.top, paddingBottom: insets.bottom, paddingHorizontal: spacing.lg }}>
       <View style={{ flex: 1, maxWidth: 640, width: '100%', alignSelf: 'center', justifyContent: 'center', gap: spacing.lg }}>
-        <View accessible style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: theme.accentSoft, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-          <Image accessibilityLabel="Weathercast rain mark" source={require('../../assets/images/icon.png')} style={{ width: 72, height: 72 }} />
+        <View accessible accessibilityLabel="Weathercast rain mark" style={{ width: 72, height: 72, borderRadius: 20, backgroundColor: theme.accentSoft, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+          <Image accessible={false} source={require('../../assets/images/icon.png')} style={{ width: 72, height: 72 }} />
         </View>
         <View style={{ gap: spacing.sm }}>
           <Text selectable accessibilityRole="header" style={{ color: theme.text, fontSize: 40, lineHeight: 44, fontWeight: '800', letterSpacing: -0.8 }}>
