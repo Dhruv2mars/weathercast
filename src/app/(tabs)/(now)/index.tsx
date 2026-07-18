@@ -1,6 +1,6 @@
 import { useNetInfo } from '@react-native-community/netinfo';
 import { Redirect, router, Stack } from 'expo-router';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 
 import { AppButton } from '@/components/app-button';
@@ -34,6 +34,17 @@ export default function NowScreen() {
     ].join(':')
     : 'none';
   const alertContextRef = useRef<string | null>(null);
+  const [expiryTick, setExpiryTick] = useState(0);
+
+  useEffect(() => {
+    if (!nowcast?.validUntil) return;
+    const delay = new Date(nowcast.validUntil).getTime() - Date.now();
+    if (delay <= 0) return;
+    const timer = setTimeout(() => {
+      setExpiryTick((value) => value + 1);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [nowcast?.validUntil]);
 
   useEffect(() => {
     const previousContext = alertContextRef.current;
@@ -79,7 +90,7 @@ export default function NowScreen() {
     if (nowcastQuery.isPlaceholderData || nowcastQuery.isFetching || nowcastQuery.isError) return;
 
     syncScheduledAlert(getAlertPlan(nowcast, preferences.alerts)).catch(() => undefined);
-  }, [alertContextKey, nowcast, nowcastQuery.isError, nowcastQuery.isFetching, nowcastQuery.isLoading, nowcastQuery.isPlaceholderData, preferences.alerts, selected.isLoading, selected.place]);
+  }, [alertContextKey, expiryTick, nowcast, nowcastQuery.isError, nowcastQuery.isFetching, nowcastQuery.isLoading, nowcastQuery.isPlaceholderData, preferences.alerts, selected.isLoading, selected.place]);
 
   if (!preferences.onboardingComplete) return <Redirect href="/onboarding" />;
 
