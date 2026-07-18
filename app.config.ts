@@ -18,6 +18,7 @@ function httpsUrl(name: string, value: string | undefined) {
     throw new Error(`${name} must be a valid URL.`);
   }
   if (url.protocol !== 'https:') throw new Error(`${name} must use HTTPS.`);
+  if (url.username || url.password || url.search || url.hash) throw new Error(`${name} must not contain credentials or URL parameters.`);
   if (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname.endsWith('.example')) {
     throw new Error(`${name} must use a deployed production host.`);
   }
@@ -26,7 +27,7 @@ function httpsUrl(name: string, value: string | undefined) {
 
 export function validateProductionClientConfig(environment: Record<string, string | undefined>): ProductionClientConfig {
   const googleMapsApiKey = environment.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
-  if (!googleMapsApiKey || googleMapsApiKey.length < 20 || /replace|example/i.test(googleMapsApiKey)) {
+  if (!googleMapsApiKey || !/^AIza[0-9A-Za-z_-]{35}$/.test(googleMapsApiKey)) {
     throw new Error('EXPO_PUBLIC_GOOGLE_MAPS_API_KEY must be a restricted production Android key.');
   }
   return {
@@ -97,6 +98,12 @@ export default (): ExpoConfig => {
     },
     android: {
       package: 'com.dhruv2mars.weathercast',
+      allowBackup: false,
+      blockedPermissions: [
+        'android.permission.READ_EXTERNAL_STORAGE',
+        'android.permission.WRITE_EXTERNAL_STORAGE',
+        'android.permission.SYSTEM_ALERT_WINDOW',
+      ],
       adaptiveIcon: {
         backgroundColor: '#07101D',
         foregroundImage: './assets/images/android-icon-foreground.png',

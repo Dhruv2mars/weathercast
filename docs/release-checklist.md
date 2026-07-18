@@ -50,7 +50,7 @@
 - [ ] Rate limits, abuse controls, secret rotation, and alerting enabled
 - [ ] On-call owner and incident runbook assigned
 - [ ] Provider freshness SLO and point-API availability SLO defined
-- [ ] Rollback tested through store release tracks and EAS Update policy
+- [ ] Rollback tested through Google Play store release tracks; OTA updates remain disabled by policy
 - [ ] Account deletion omitted only while the app truly has no accounts or server-side profiles
 
 Unchecked external gates mean the repository is a verified product client, not a truthful generally available precision-nowcasting service.

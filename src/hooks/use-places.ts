@@ -7,10 +7,13 @@ let snapshot = storage.getPlaces();
 
 export function usePlaces() {
   const places = useSyncExternalStore(
-    (onChange) => storage.subscribePlaces(() => {
+    (onChange) => {
       snapshot = storage.getPlaces();
-      onChange();
-    }),
+      return storage.subscribePlaces(() => {
+        snapshot = storage.getPlaces();
+        onChange();
+      });
+    },
     () => snapshot,
     () => snapshot,
   );

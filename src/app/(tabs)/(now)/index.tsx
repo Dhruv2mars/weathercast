@@ -1,6 +1,6 @@
 import { useNetInfo } from '@react-native-community/netinfo';
 import { Redirect, router, Stack } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 
 import { AppButton } from '@/components/app-button';
@@ -9,11 +9,12 @@ import { RainTimeline } from '@/components/rain-timeline';
 import { Screen } from '@/components/screen';
 import { Divider, Group, Section } from '@/components/section';
 import { spacing, useAppTheme } from '@/constants/theme';
-import { getAlertPlan } from '@/domain/alerts';
+import { getAlertPlan, isNowcastExpired } from '@/domain/alerts';
 import { useNowcast } from '@/hooks/use-nowcast';
 import { usePreferences } from '@/hooks/use-preferences';
 import { useSelectedPlace } from '@/hooks/use-selected-place';
-import { formatRelativeUpdate, formatTime, intensityLabel } from '@/lib/format';
+import { formatForecastFreshness, formatRelativeUpdate, formatTime, intensityLabel } from '@/lib/format';
+import { locationKey } from '@/lib/storage';
 import { syncScheduledAlert } from '@/services/notifications';
 
 export default function NowScreen() {
@@ -23,11 +24,73 @@ export default function NowScreen() {
   const selected = useSelectedPlace();
   const nowcastQuery = useNowcast(selected.place);
   const nowcast = nowcastQuery.data;
+  const alertContextKey = selected.place
+    ? [
+      selected.place.id,
+      locationKey(selected.place.latitude, selected.place.longitude),
+      preferences.alerts.enabled ? 'on' : 'off',
+      String(preferences.alerts.leadMinutes),
+      preferences.alerts.significantOnly ? 'significant' : 'all',
+    ].join(':')
+    : 'none';
+  const alertContextRef = useRef<string | null>(null);
+  const [expiryTick, setExpiryTick] = useState(0);
 
   useEffect(() => {
-    if (!nowcast) return;
+    if (!nowcast?.validUntil) return;
+    const delay = new Date(nowcast.validUntil).getTime() - Date.now();
+    if (delay <= 0) return;
+    const timer = setTimeout(() => {
+      setExpiryTick((value) => value + 1);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [nowcast?.validUntil]);
+
+  useEffect(() => {
+    const previousContext = alertContextRef.current;
+    // First resolution from unset/none (e.g. current GPS bootstrap) must not wipe a
+    // same-session OS alert before placeholder/refresh retention can apply.
+    const contextChanged = previousContext !== null
+      && previousContext !== 'none'
+      && previousContext !== alertContextKey;
+    alertContextRef.current = alertContextKey;
+
+    if (!preferences.alerts.enabled) {
+      syncScheduledAlert(null).catch(() => undefined);
+      return;
+    }
+
+    // Cancel when place or alert preferences change so an obsolete plan cannot linger.
+    if (contextChanged) {
+      syncScheduledAlert(null).catch(() => undefined);
+    }
+
+    if (!selected.place) {
+      // Current GPS can be briefly unavailable on relaunch; retain until selection settles.
+      if (selected.isLoading) return;
+      syncScheduledAlert(null).catch(() => undefined);
+      return;
+    }
+
+    if (!nowcast) {
+      // Retain through initial load; cancel only once we know there is no forecast.
+      if (nowcastQuery.isLoading || nowcastQuery.isFetching || nowcastQuery.isPlaceholderData) return;
+      syncScheduledAlert(null).catch(() => undefined);
+      return;
+    }
+
+    // Expired forecasts (cached marker or live validUntil) must clear OS alerts even
+    // while retaining through bootstrap/refresh for non-expired same-context data.
+    if (isNowcastExpired(nowcast)) {
+      syncScheduledAlert(null).catch(() => undefined);
+      return;
+    }
+
+    // Retain through placeholder bootstrap, in-flight refresh, and same-context errors.
+    if (nowcastQuery.isPlaceholderData || nowcastQuery.isFetching || nowcastQuery.isError) return;
+
     syncScheduledAlert(getAlertPlan(nowcast, preferences.alerts)).catch(() => undefined);
-  }, [nowcast, preferences.alerts]);
+  }, [alertContextKey, expiryTick, nowcast, nowcastQuery.isError, nowcastQuery.isFetching, nowcastQuery.isLoading, nowcastQuery.isPlaceholderData, preferences.alerts, selected.isLoading, selected.place]);
 
   if (!preferences.onboardingComplete) return <Redirect href="/onboarding" />;
 
@@ -42,10 +105,24 @@ export default function NowScreen() {
         ),
       }} />
       <Screen refreshControl={<RefreshControl refreshing={nowcastQuery.isFetching && !nowcastQuery.isLoading} onRefresh={() => nowcastQuery.refetch()} tintColor={theme.accent} />}>
-        {!network.isConnected && (
+        {network.isConnected === false && (
           <View accessibilityRole="alert" style={{ backgroundColor: theme.elevated, borderRadius: 12, padding: 12 }}>
             <Text selectable style={{ color: theme.text, fontWeight: '700' }}>Offline</Text>
             <Text selectable style={{ color: theme.secondaryText }}>Showing the last available forecast. Timing may be stale.</Text>
+          </View>
+        )}
+
+        {nowcast && isNowcastExpired(nowcast) && (
+          <View accessibilityRole="alert" style={{ backgroundColor: theme.elevated, borderRadius: 12, padding: 12 }}>
+            <Text selectable style={{ color: theme.text, fontWeight: '700' }}>Forecast expired</Text>
+            <Text selectable style={{ color: theme.secondaryText }}>Reconnect to refresh this forecast. Alerts are paused until new data arrives.</Text>
+          </View>
+        )}
+
+        {selected.place?.locationSource === 'recent' && (
+          <View accessibilityRole="alert" style={{ backgroundColor: theme.elevated, borderRadius: 12, padding: 12 }}>
+            <Text selectable style={{ color: theme.text, fontWeight: '700' }}>Using a recent location</Text>
+            <Text selectable style={{ color: theme.secondaryText }}>A fresh GPS fix was unavailable, so this forecast uses a location captured within the last 2 minutes.</Text>
           </View>
         )}
 
@@ -68,6 +145,16 @@ export default function NowScreen() {
             <Text selectable style={{ color: theme.text, fontSize: 24, fontWeight: '800' }}>Forecast unavailable</Text>
             <Text selectable style={{ color: theme.secondaryText, fontSize: 16, lineHeight: 23 }}>
               {nowcastQuery.error instanceof Error ? nowcastQuery.error.message : 'The weather service could not be reached.'}
+            </Text>
+            <AppButton onPress={() => nowcastQuery.refetch()}>Try again</AppButton>
+          </View>
+        )}
+
+        {selected.place && network.isConnected === false && !nowcast && !nowcastQuery.isLoading && !nowcastQuery.isError && (
+          <View accessibilityRole="alert" style={{ gap: spacing.md }}>
+            <Text selectable style={{ color: theme.text, fontSize: 24, fontWeight: '800' }}>No forecast cached</Text>
+            <Text selectable style={{ color: theme.secondaryText, fontSize: 16, lineHeight: 23 }}>
+              Reconnect to fetch a forecast for this place.
             </Text>
             <AppButton onPress={() => nowcastQuery.refetch()}>Try again</AppButton>
           </View>
@@ -105,7 +192,11 @@ export default function NowScreen() {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
               <View style={{ flexGrow: 1 }}>
                 <AppButton onPress={() => router.push('/settings')} variant={preferences.alerts.enabled ? 'secondary' : 'primary'}>
-                  {preferences.alerts.enabled ? `Alert set · ${preferences.alerts.leadMinutes} min before` : 'Alert me'}
+                  {!preferences.alerts.enabled
+                    ? 'Alert me'
+                    : nowcast.calibrationStatus === 'uncalibrated'
+                      ? 'Alerts unavailable for fallback'
+                      : 'Alerts enabled'}
                 </AppButton>
               </View>
             </View>
@@ -120,7 +211,9 @@ export default function NowScreen() {
                 <View style={{ padding: 16, gap: 4 }}>
                   <Text selectable style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>Freshness</Text>
                   <Text selectable style={{ color: theme.secondaryText, fontSize: 15 }}>
-                    {formatRelativeUpdate(nowcast.generatedAt ?? nowcast.issuedAt)}
+                    {nowcast.sourceDataTime
+                      ? formatForecastFreshness(nowcast.sourceDataTime, network.isConnected)
+                      : `Service update · ${formatRelativeUpdate(nowcast.generatedAt ?? nowcast.issuedAt)}`}
                   </Text>
                   {!nowcast.sourceDataTime && nowcast.forecastId && (
                     <Text selectable style={{ color: theme.secondaryText, fontSize: 13 }}>Provider source timestamp unavailable</Text>

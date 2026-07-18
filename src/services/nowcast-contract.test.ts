@@ -46,4 +46,17 @@ describe('parseNowcastResponse', () => {
     expect(() => parseNowcastResponse(gapped)).toThrow();
     expect(() => parseNowcastResponse({ ...valid, calibrationStatus: 'uncalibrated' })).toThrow();
   });
+
+  test('rejects impossible event timing and duration', () => {
+    const event = {
+      startTime: '2026-07-10T08:30:00.000Z',
+      endTime: '2026-07-10T08:15:00.000Z',
+      onsetWindowStart: '2026-07-10T08:35:00.000Z',
+      onsetWindowEnd: '2026-07-10T08:25:00.000Z',
+      peakIntensity: 'moderate' as const,
+      peakMm: 1,
+      durationMinutes: 15,
+    };
+    expect(() => parseNowcastResponse({ ...valid, status: 'incoming', event })).toThrow();
+  });
 });

@@ -1,36 +1,52 @@
 import * as Location from 'expo-location';
 
-import type { Place } from '@/types/weather';
+import {
+  hasLocationPermissionWith,
+  readCurrentPlaceWith,
+  requestCurrentPlaceWith,
+  type LocationAdapter,
+} from '@/services/location-core';
 
-export async function requestCurrentPlace(): Promise<Place> {
-  const permission = await Location.requestForegroundPermissionsAsync();
-  if (!permission.granted) throw new Error('LOCATION_DENIED');
-  return readCurrentPlace();
+const adapter: LocationAdapter = {
+  async requestForegroundPermission() {
+    return (await Location.requestForegroundPermissionsAsync()).granted;
+  },
+  async hasForegroundPermission() {
+    return (await Location.getForegroundPermissionsAsync()).granted;
+  },
+  hasServicesEnabled: Location.hasServicesEnabledAsync,
+  async getRecentPosition() {
+    const position = await Location.getLastKnownPositionAsync({
+      maxAge: 2 * 60_000,
+      requiredAccuracy: 500,
+    });
+    return position ? {
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      timestamp: position.timestamp,
+    } : undefined;
+  },
+  async getCurrentPosition() {
+    const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    return {
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      timestamp: position.timestamp,
+    };
+  },
+  async reverseGeocode(coordinates) {
+    return (await Location.reverseGeocodeAsync(coordinates))[0];
+  },
+};
+
+export function requestCurrentPlace() {
+  return requestCurrentPlaceWith(adapter);
 }
 
-export async function readCurrentPlace(): Promise<Place> {
-  const servicesEnabled = await Location.hasServicesEnabledAsync();
-  if (!servicesEnabled) throw new Error('LOCATION_SERVICES_OFF');
-  const position = await Location.getCurrentPositionAsync({
-    accuracy: Location.Accuracy.Balanced,
-  });
-  const latitude = position.coords.latitude;
-  const longitude = position.coords.longitude;
-  let name = 'Current location';
-  let admin: string | undefined;
-  let country: string | undefined;
-  try {
-    const [address] = await Location.reverseGeocodeAsync({ latitude, longitude });
-    name = address?.city ?? address?.district ?? address?.subregion ?? name;
-    admin = address?.region ?? undefined;
-    country = address?.country ?? undefined;
-  } catch {
-    name = 'Current location';
-  }
-  return { id: 'current', name, admin, country, latitude, longitude, source: 'current' };
+export function readCurrentPlace() {
+  return readCurrentPlaceWith(adapter);
 }
 
-export async function hasLocationPermission() {
-  const permission = await Location.getForegroundPermissionsAsync();
-  return permission.granted;
+export function hasLocationPermission() {
+  return hasLocationPermissionWith(adapter);
 }

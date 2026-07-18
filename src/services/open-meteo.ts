@@ -3,23 +3,42 @@ import { z } from 'zod';
 import { getJson } from '@/services/http';
 import type { Coordinates, NormalizedForecast } from '@/types/weather';
 
-const arrayOfNumbers = z.array(z.number().nullable()).transform((values) => values.map((value) => value ?? 0));
+const REQUIRED_INTERVALS = 8;
+const SLOT_SECONDS = 15 * 60;
+
+const nullableMeasurements = z.array(z.number().nonnegative().nullable()).min(REQUIRED_INTERVALS);
+const nullableWeatherCodes = z.array(z.number().int().nullable()).min(REQUIRED_INTERVALS);
+const nullableProbabilities = z.array(z.number().min(0).max(100).nullable()).min(1);
 const responseSchema = z.object({
   timezone: z.string(),
   minutely_15: z.object({
-    time: z.array(z.number()),
-    precipitation: arrayOfNumbers,
-    rain: arrayOfNumbers,
-    showers: arrayOfNumbers,
-    weather_code: arrayOfNumbers,
+    time: z.array(z.number()).min(REQUIRED_INTERVALS),
+    precipitation: nullableMeasurements,
+    rain: nullableMeasurements,
+    showers: nullableMeasurements,
+    weather_code: nullableWeatherCodes,
   }),
   hourly: z.object({
-    time: z.array(z.number()),
-    precipitation_probability: arrayOfNumbers,
+    time: z.array(z.number()).min(1),
+    precipitation_probability: nullableProbabilities,
   }),
+}).superRefine((value, context) => {
+  const minuteLengths = [
+    value.minutely_15.time.length,
+    value.minutely_15.precipitation.length,
+    value.minutely_15.rain.length,
+    value.minutely_15.showers.length,
+    value.minutely_15.weather_code.length,
+  ];
+  if (new Set(minuteLengths).size !== 1) {
+    context.addIssue({ code: 'custom', path: ['minutely_15'], message: 'Minutely forecast arrays must have equal lengths.' });
+  }
+  if (value.hourly.time.length !== value.hourly.precipitation_probability.length) {
+    context.addIssue({ code: 'custom', path: ['hourly'], message: 'Hourly forecast arrays must have equal lengths.' });
+  }
 });
 
-function nearestProbability(time: number, hourlyTimes: number[], probabilities: number[]) {
+function nearestProbability(time: number, hourlyTimes: number[], probabilities: (number | null)[]) {
   let bestIndex = 0;
   let bestDistance = Number.POSITIVE_INFINITY;
   hourlyTimes.forEach((hourlyTime, index) => {
@@ -29,17 +48,32 @@ function nearestProbability(time: number, hourlyTimes: number[], probabilities: 
       bestDistance = distance;
     }
   });
-  return Math.round(probabilities[bestIndex] ?? 0);
+  const probability = probabilities[bestIndex];
+  if (probability === null || probability === undefined) throw new Error('Weather service returned incomplete measurements.');
+  return Math.round(probability);
 }
 
-export async function fetchOpenMeteoForecast(location: Coordinates, signal?: AbortSignal): Promise<NormalizedForecast> {
+function requiredMeasurement(value: number | null | undefined) {
+  if (value === null || value === undefined) throw new Error('Weather service returned incomplete measurements.');
+  return value;
+}
+
+function selectHorizonStart(times: number[], nowSec: number) {
+  return times.findIndex((time) => time >= nowSec - SLOT_SECONDS);
+}
+
+export async function fetchOpenMeteoForecast(
+  location: Coordinates,
+  signal?: AbortSignal,
+  now = new Date(),
+): Promise<NormalizedForecast> {
   const host = process.env.EXPO_PUBLIC_OPEN_METEO_HOST ?? 'https://api.open-meteo.com';
   const params = new URLSearchParams({
     latitude: location.latitude.toFixed(5),
     longitude: location.longitude.toFixed(5),
     minutely_15: 'precipitation,rain,showers,weather_code',
     hourly: 'precipitation_probability',
-    forecast_days: '1',
+    forecast_days: '2',
     timezone: 'auto',
     timeformat: 'unixtime',
   });
@@ -48,17 +82,35 @@ export async function fetchOpenMeteoForecast(location: Coordinates, signal?: Abo
   if (!parsed.success) throw new Error('Weather service returned an unsupported response.');
 
   const { minutely_15: minuteData, hourly } = parsed.data;
+  const nowSec = Math.floor(now.getTime() / 1000);
+  const startIndex = selectHorizonStart(minuteData.time, nowSec);
+  if (startIndex < 0 || startIndex + REQUIRED_INTERVALS > minuteData.time.length) {
+    throw new Error('Weather service returned an unsupported response.');
+  }
+
+  const horizonIndexes = Array.from({ length: REQUIRED_INTERVALS }, (_, offset) => startIndex + offset);
+  const incomplete = horizonIndexes.some((index) => (
+    minuteData.precipitation[index] === null
+    || minuteData.rain[index] === null
+    || minuteData.showers[index] === null
+    || minuteData.weather_code[index] === null
+  ));
+  if (incomplete) throw new Error('Weather service returned an unsupported response.');
+
   return {
-    issuedAt: new Date().toISOString(),
+    issuedAt: now.toISOString(),
     timezone: parsed.data.timezone,
     source: 'Open-Meteo numerical guidance',
-    intervals: minuteData.time.map((time, index) => ({
-      time: new Date(time * 1000).toISOString(),
-      precipitationMm: minuteData.precipitation[index] ?? 0,
-      rainMm: minuteData.rain[index] ?? 0,
-      showersMm: minuteData.showers[index] ?? 0,
-      probability: nearestProbability(time, hourly.time, hourly.precipitation_probability),
-      weatherCode: minuteData.weather_code[index] ?? 0,
-    })),
+    intervals: horizonIndexes.map((index) => {
+      const time = minuteData.time[index]!;
+      return {
+        time: new Date(time * 1000).toISOString(),
+        precipitationMm: requiredMeasurement(minuteData.precipitation[index]),
+        rainMm: requiredMeasurement(minuteData.rain[index]),
+        showersMm: requiredMeasurement(minuteData.showers[index]),
+        probability: nearestProbability(time, hourly.time, hourly.precipitation_probability),
+        weatherCode: requiredMeasurement(minuteData.weather_code[index]),
+      };
+    }),
   };
 }

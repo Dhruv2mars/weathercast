@@ -6,8 +6,15 @@ export type AlertPlan = {
   body: string;
 };
 
+export function isNowcastExpired(nowcast: Nowcast, now = new Date()): boolean {
+  if (nowcast.expired) return true;
+  if (!nowcast.validUntil) return false;
+  return new Date(nowcast.validUntil).getTime() <= now.getTime();
+}
+
 export function getAlertPlan(nowcast: Nowcast, preferences: AlertPreferences, now = new Date()): AlertPlan | null {
   if (!preferences.enabled || !nowcast.event || nowcast.status !== 'incoming') return null;
+  if (nowcast.calibrationStatus === 'uncalibrated' || isNowcastExpired(nowcast, now) || !nowcast.validUntil) return null;
   if (preferences.significantOnly && ['trace', 'light'].includes(nowcast.event.peakIntensity)) return null;
 
   const triggerAt = new Date(new Date(nowcast.event.startTime).getTime() - preferences.leadMinutes * 60_000);

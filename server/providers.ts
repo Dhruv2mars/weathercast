@@ -3,20 +3,38 @@ import { z } from 'zod';
 
 import { normalizedUpstreamSchema } from './contracts';
 
-const numberArray = z.array(z.number().nullable()).transform((values) => values.map((value) => value ?? 0));
+const REQUIRED_INTERVALS = 8;
+const SLOT_SECONDS = 15 * 60;
+const nullableMeasurements = z.array(z.number().nonnegative().nullable()).min(REQUIRED_INTERVALS);
+const nullableWeatherCodes = z.array(z.number().int().nullable()).min(REQUIRED_INTERVALS);
+const nullableProbabilities = z.array(z.number().min(0).max(100).nullable()).min(1);
 const openMeteoSchema = z.object({
   timezone: z.string(),
   minutely_15: z.object({
-    time: z.array(z.number()),
-    precipitation: numberArray,
-    rain: numberArray,
-    showers: numberArray,
-    weather_code: numberArray,
+    time: z.array(z.number()).min(REQUIRED_INTERVALS),
+    precipitation: nullableMeasurements,
+    rain: nullableMeasurements,
+    showers: nullableMeasurements,
+    weather_code: nullableWeatherCodes,
   }),
   hourly: z.object({
-    time: z.array(z.number()),
-    precipitation_probability: numberArray,
+    time: z.array(z.number()).min(1),
+    precipitation_probability: nullableProbabilities,
   }),
+}).superRefine((value, context) => {
+  const minuteLengths = [
+    value.minutely_15.time.length,
+    value.minutely_15.precipitation.length,
+    value.minutely_15.rain.length,
+    value.minutely_15.showers.length,
+    value.minutely_15.weather_code.length,
+  ];
+  if (new Set(minuteLengths).size !== 1) {
+    context.addIssue({ code: 'custom', path: ['minutely_15'], message: 'Minutely forecast arrays must have equal lengths.' });
+  }
+  if (value.hourly.time.length !== value.hourly.precipitation_probability.length) {
+    context.addIssue({ code: 'custom', path: ['hourly'], message: 'Hourly forecast arrays must have equal lengths.' });
+  }
 });
 
 export type ProviderResult = {
@@ -34,7 +52,7 @@ export interface ForecastProvider {
   fetch(location: Coordinates, signal: AbortSignal): Promise<ProviderResult>;
 }
 
-function nearestProbability(time: number, times: number[], probabilities: number[]) {
+function nearestProbability(time: number, times: number[], probabilities: (number | null)[]) {
   let nearest = 0;
   let distance = Number.POSITIVE_INFINITY;
   times.forEach((candidate, index) => {
@@ -44,7 +62,18 @@ function nearestProbability(time: number, times: number[], probabilities: number
       distance = nextDistance;
     }
   });
-  return Math.round(probabilities[nearest] ?? 0);
+  const probability = probabilities[nearest];
+  if (probability === null || probability === undefined) {
+    throw new Error('Weather service returned incomplete measurements.');
+  }
+  return Math.round(probability);
+}
+
+function requiredMeasurement(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    throw new Error('Weather service returned incomplete measurements.');
+  }
+  return value;
 }
 
 async function getJson(url: string, init: RequestInit) {
@@ -66,7 +95,7 @@ export class OpenMeteoEvaluationProvider implements ForecastProvider {
       longitude: location.longitude.toFixed(5),
       minutely_15: 'precipitation,rain,showers,weather_code',
       hourly: 'precipitation_probability',
-      forecast_days: '1',
+      forecast_days: '2',
       timezone: 'auto',
       timeformat: 'unixtime',
     });
@@ -74,7 +103,21 @@ export class OpenMeteoEvaluationProvider implements ForecastProvider {
       headers: { Accept: 'application/json', 'User-Agent': 'Weathercast-Evaluation/1.0' },
       signal,
     }));
-    const issuedAt = new Date().toISOString();
+    const now = new Date();
+    const nowSec = Math.floor(now.getTime() / 1000);
+    const startIndex = parsed.minutely_15.time.findIndex((time) => time >= nowSec - SLOT_SECONDS);
+    if (startIndex < 0 || startIndex + REQUIRED_INTERVALS > parsed.minutely_15.time.length) {
+      throw new Error('Weather service returned an unsupported response.');
+    }
+    const horizonIndexes = Array.from({ length: REQUIRED_INTERVALS }, (_, offset) => startIndex + offset);
+    const incomplete = horizonIndexes.some((index) => (
+      parsed.minutely_15.precipitation[index] === null
+      || parsed.minutely_15.rain[index] === null
+      || parsed.minutely_15.showers[index] === null
+      || parsed.minutely_15.weather_code[index] === null
+    ));
+    if (incomplete) throw new Error('Weather service returned an unsupported response.');
+
     return {
       provider: 'open-meteo-evaluation',
       dataTier: 'standard',
@@ -82,17 +125,20 @@ export class OpenMeteoEvaluationProvider implements ForecastProvider {
       spatialResolutionKm: null,
       coverageReason: 'Numerical guidance only; licensed radar and local observations are not configured.',
       forecast: {
-        issuedAt,
+        issuedAt: now.toISOString(),
         timezone: parsed.timezone,
         source: 'Open-Meteo numerical guidance (evaluation)',
-        intervals: parsed.minutely_15.time.map((time, index) => ({
-          time: new Date(time * 1000).toISOString(),
-          precipitationMm: parsed.minutely_15.precipitation[index] ?? 0,
-          rainMm: parsed.minutely_15.rain[index] ?? 0,
-          showersMm: parsed.minutely_15.showers[index] ?? 0,
-          probability: nearestProbability(time, parsed.hourly.time, parsed.hourly.precipitation_probability),
-          weatherCode: parsed.minutely_15.weather_code[index] ?? 0,
-        })),
+        intervals: horizonIndexes.map((index) => {
+          const time = parsed.minutely_15.time[index]!;
+          return {
+            time: new Date(time * 1000).toISOString(),
+            precipitationMm: requiredMeasurement(parsed.minutely_15.precipitation[index]),
+            rainMm: requiredMeasurement(parsed.minutely_15.rain[index]),
+            showersMm: requiredMeasurement(parsed.minutely_15.showers[index]),
+            probability: nearestProbability(time, parsed.hourly.time, parsed.hourly.precipitation_probability),
+            weatherCode: requiredMeasurement(parsed.minutely_15.weather_code[index]),
+          };
+        }),
       },
     };
   }

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
 
 import { locationKey, storage } from '@/lib/storage';
 import { ApiError } from '@/services/http';
@@ -7,7 +8,7 @@ import type { Nowcast, Place } from '@/types/weather';
 
 export function useNowcast(place: Place | undefined) {
   const key = place ? locationKey(place.latitude, place.longitude) : 'unselected';
-  return useQuery<Nowcast>({
+  const query = useQuery<Nowcast>({
     queryKey: ['nowcast', key],
     queryFn: ({ signal }) => fetchNowcast(place!, signal),
     enabled: Boolean(place),
@@ -21,9 +22,16 @@ export function useNowcast(place: Place | undefined) {
     },
     placeholderData: place ? storage.getNowcast(key) : undefined,
     meta: { persistKey: key },
-    select: (nowcast) => {
-      storage.setNowcast(key, nowcast);
-      return nowcast;
-    },
   });
+
+  useEffect(() => {
+    if (!query.data || query.isPlaceholderData) return;
+    try {
+      storage.setNowcast(key, query.data);
+    } catch {
+      // Forecast display must not fail because local cache persistence failed.
+    }
+  }, [key, query.data, query.isPlaceholderData]);
+
+  return query;
 }

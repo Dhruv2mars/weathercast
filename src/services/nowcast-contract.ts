@@ -67,6 +67,22 @@ const nowcastSchema = z.object({
   if (value.status !== 'clear' && value.event === null) {
     context.addIssue({ code: 'custom', path: ['event'], message: 'An active or incoming nowcast requires a rain event.' });
   }
+  if (value.event) {
+    const start = new Date(value.event.startTime).getTime();
+    const end = new Date(value.event.endTime).getTime();
+    const onsetStart = new Date(value.event.onsetWindowStart).getTime();
+    const onsetEnd = new Date(value.event.onsetWindowEnd).getTime();
+    const durationMinutes = Math.round((end - start) / 60_000);
+    if (end <= start) {
+      context.addIssue({ code: 'custom', path: ['event', 'endTime'], message: 'Rain event must end after it starts.' });
+    }
+    if (onsetEnd < onsetStart) {
+      context.addIssue({ code: 'custom', path: ['event', 'onsetWindowEnd'], message: 'Rain onset window must be ordered.' });
+    }
+    if (value.event.durationMinutes !== durationMinutes) {
+      context.addIssue({ code: 'custom', path: ['event', 'durationMinutes'], message: 'Rain event duration must match its timestamps.' });
+    }
+  }
   if (value.calibrationStatus === 'uncalibrated'
       && (value.confidence.label !== 'low' || value.confidence.score !== 0)) {
     context.addIssue({ code: 'custom', path: ['confidence'], message: 'Uncalibrated guidance must use the zero/Low compatibility value.' });

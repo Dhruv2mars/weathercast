@@ -13,6 +13,8 @@ export type Place = Coordinates & {
   admin?: string;
   country?: string;
   source: 'current' | 'search' | 'saved';
+  locationSource?: 'live' | 'recent';
+  locationTimestamp?: string;
 };
 
 export type ForecastInterval = {
@@ -60,6 +62,7 @@ export type Nowcast = {
   forecastId?: string;
   generatedAt?: string;
   validUntil?: string;
+  expired?: boolean;
   timezone?: string;
   sourceDataTime?: string | null;
   calibrationStatus?: 'uncalibrated' | 'provisional' | 'calibrated';

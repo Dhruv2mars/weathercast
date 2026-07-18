@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 
-import { validateProductionClientConfig } from './app.config';
+import getExpoConfig, { validateProductionClientConfig } from './app.config';
 
 const valid = {
   EXPO_PUBLIC_NOWCAST_API_URL: 'https://api.weathercast.app',
   EXPO_PUBLIC_RADAR_MANIFEST_URL: 'https://radar.weathercast.app/v1/manifest.json',
-  EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: 'restricted-key-at-least-twenty-characters',
+  EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: 'AIzaSyA12345678901234567890123456789012',
   EXPO_PUBLIC_PRIVACY_POLICY_URL: 'https://weathercast.app/privacy',
   EXPO_PUBLIC_TERMS_URL: 'https://weathercast.app/terms',
   EXPO_PUBLIC_SUPPORT_URL: 'https://weathercast.app/support',
@@ -19,6 +19,18 @@ describe('validateProductionClientConfig', () => {
   test('rejects placeholders, local hosts, HTTP, and weak map keys', () => {
     expect(() => validateProductionClientConfig({ ...valid, EXPO_PUBLIC_NOWCAST_API_URL: 'https://api.weathercast.example' })).toThrow();
     expect(() => validateProductionClientConfig({ ...valid, EXPO_PUBLIC_RADAR_MANIFEST_URL: 'http://radar.weathercast.app' })).toThrow();
+    expect(() => validateProductionClientConfig({ ...valid, EXPO_PUBLIC_SUPPORT_URL: 'https://user:password@weathercast.app/support' })).toThrow();
     expect(() => validateProductionClientConfig({ ...valid, EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: 'replace-me' })).toThrow();
+  });
+
+  test('hardens Android local data', () => {
+    const config = getExpoConfig();
+
+    expect(config.android?.allowBackup).toBe(false);
+    expect(config.android?.blockedPermissions).toEqual([
+      'android.permission.READ_EXTERNAL_STORAGE',
+      'android.permission.WRITE_EXTERNAL_STORAGE',
+      'android.permission.SYSTEM_ALERT_WINDOW',
+    ]);
   });
 });

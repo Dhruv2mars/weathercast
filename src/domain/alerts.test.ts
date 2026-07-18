@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 
-import { getAlertPlan } from '@/domain/alerts';
+import { getAlertPlan, isNowcastExpired } from '@/domain/alerts';
 import type { Nowcast } from '@/types/weather';
 
 const now = new Date('2026-07-10T10:00:00.000Z');
 
 const base: Nowcast = {
   issuedAt: now.toISOString(),
+  validUntil: '2026-07-10T10:40:00.000Z',
   status: 'incoming',
   headline: 'Rain likely in 25–35 minutes',
   detail: 'Moderate rain may last 30 minutes.',
@@ -25,6 +26,14 @@ const base: Nowcast = {
     durationMinutes: 30,
   },
 };
+
+describe('isNowcastExpired', () => {
+  test('treats explicit expired markers and elapsed validUntil as expired', () => {
+    expect(isNowcastExpired({ ...base, expired: true }, now)).toBe(true);
+    expect(isNowcastExpired({ ...base, validUntil: '2026-07-10T09:59:00.000Z' }, now)).toBe(true);
+    expect(isNowcastExpired(base, now)).toBe(false);
+  });
+});
 
 describe('getAlertPlan', () => {
   test('schedules before onset using requested lead time', () => {
@@ -50,5 +59,10 @@ describe('getAlertPlan', () => {
       validUntil: '2026-07-10T10:04:00.000Z',
     };
     expect(getAlertPlan(expiring, { enabled: true, leadMinutes: 10, significantOnly: false }, now)).toBeNull();
+  });
+
+  test('does not schedule uncalibrated fallback guidance or legacy forecasts without validity', () => {
+    expect(getAlertPlan({ ...base, calibrationStatus: 'uncalibrated' }, { enabled: true, leadMinutes: 10, significantOnly: false }, now)).toBeNull();
+    expect(getAlertPlan({ ...base, validUntil: undefined }, { enabled: true, leadMinutes: 10, significantOnly: false }, now)).toBeNull();
   });
 });

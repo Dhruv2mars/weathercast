@@ -5,13 +5,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppButton } from '@/components/app-button';
 import { spacing, useAppTheme } from '@/constants/theme';
-import { usePreferences } from '@/hooks/use-preferences';
-import { requestCurrentPlace } from '@/services/location';
+import { useSelectCurrentPlace } from '@/hooks/use-select-current-place';
 
 export default function OnboardingScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
-  const [preferences, setPreferences] = usePreferences();
+  const selectCurrentPlace = useSelectCurrentPlace();
   const [isLocating, setIsLocating] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -19,14 +18,15 @@ export default function OnboardingScreen() {
     setIsLocating(true);
     setError(undefined);
     try {
-      await requestCurrentPlace();
-      setPreferences({ ...preferences, selectedPlaceId: 'current', onboardingComplete: true });
-      router.replace('/');
+      const result = await selectCurrentPlace();
+      if (result.committed) router.replace('/');
     } catch (caught) {
       const code = caught instanceof Error ? caught.message : '';
       setError(code === 'LOCATION_SERVICES_OFF'
         ? 'Location services are off. Turn them on in system settings, or choose a place.'
-        : 'Location access was not granted. You can still choose any place manually.');
+        : code === 'LOCATION_DENIED'
+          ? 'Location access was not granted. You can still choose any place manually.'
+          : 'Weathercast could not get a location fix. Move near a window or choose a place manually.');
     } finally {
       setIsLocating(false);
     }
@@ -51,7 +51,11 @@ export default function OnboardingScreen() {
           <AppButton disabled={isLocating} onPress={useLocation} accessibilityHint="Requests foreground location permission">
             {isLocating ? <ActivityIndicator color="#FFFFFF" /> : 'Use my location'}
           </AppButton>
-          <AppButton variant="secondary" onPress={() => router.push({ pathname: '/place-search', params: { onboarding: '1' } })}>
+          <AppButton
+            disabled={isLocating}
+            variant="secondary"
+            onPress={() => router.push({ pathname: '/place-search', params: { onboarding: '1' } })}
+          >
             Choose a place
           </AppButton>
         </View>

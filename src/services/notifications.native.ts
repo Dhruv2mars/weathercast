@@ -2,6 +2,7 @@ import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
 
 import type { AlertPlan } from '@/domain/alerts';
+import { storage } from '@/lib/storage';
 
 const ALERT_ID_KEY = 'weathercast.alert-id.v1';
 const CHANNEL_ID = 'rain-alerts';
@@ -35,6 +36,13 @@ export async function configureNotifications() {
       sound: 'default',
     });
   }
+  const permission = await Notifications.getPermissionsAsync();
+  if (!permission.granted) {
+    const preferences = storage.getPreferences();
+    if (preferences.alerts.enabled) {
+      storage.setPreferences({ ...preferences, alerts: { ...preferences.alerts, enabled: false } });
+    }
+  }
 }
 
 export async function requestNotificationPermission() {
@@ -46,15 +54,30 @@ export async function requestNotificationPermission() {
   return requested.granted;
 }
 
-export async function syncScheduledAlert(plan: AlertPlan | null) {
+let alertSyncQueue: Promise<void> = Promise.resolve();
+
+async function performAlertSync(plan: AlertPlan | null) {
   if (isExpoGo()) return;
   const Notifications = await getNotifications();
   const previousId = localStorage.getItem(ALERT_ID_KEY);
   if (previousId) {
-    await Notifications.cancelScheduledNotificationAsync(previousId).catch(() => undefined);
-    localStorage.removeItem(ALERT_ID_KEY);
+    try {
+      await Notifications.cancelScheduledNotificationAsync(previousId);
+    } catch {
+      // Native cancellation can fail after the OS has already removed an alert.
+    } finally {
+      localStorage.removeItem(ALERT_ID_KEY);
+    }
   }
   if (!plan) return;
+  const permission = await Notifications.getPermissionsAsync();
+  if (!permission.granted) {
+    const preferences = storage.getPreferences();
+    if (preferences.alerts.enabled) {
+      storage.setPreferences({ ...preferences, alerts: { ...preferences.alerts, enabled: false } });
+    }
+    return;
+  }
   const id = await Notifications.scheduleNotificationAsync({
     content: { title: plan.title, body: plan.body, data: { route: '/' }, sound: 'default' },
     trigger: {
@@ -64,4 +87,10 @@ export async function syncScheduledAlert(plan: AlertPlan | null) {
     },
   });
   localStorage.setItem(ALERT_ID_KEY, id);
+}
+
+export function syncScheduledAlert(plan: AlertPlan | null) {
+  const operation = alertSyncQueue.then(() => performAlertSync(plan));
+  alertSyncQueue = operation.catch(() => undefined);
+  return operation;
 }

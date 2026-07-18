@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { Alert, Pressable, Switch, Text, View } from 'react-native';
 
@@ -5,14 +6,16 @@ import { Screen } from '@/components/screen';
 import { Divider, Group, Section } from '@/components/section';
 import { spacing, useAppTheme } from '@/constants/theme';
 import { usePreferences } from '@/hooks/use-preferences';
-import { storage } from '@/lib/storage';
+import { forecastSourceInfo } from '@/lib/client-config';
 import { requestNotificationPermission, syncScheduledAlert } from '@/services/notifications';
+import { resetAppData } from '@/services/reset-app-data';
 import type { AlertPreferences } from '@/types/weather';
 
 const leadOptions: AlertPreferences['leadMinutes'][] = [5, 10, 15, 20, 30];
 
 export default function SettingsScreen() {
   const theme = useAppTheme();
+  const queryClient = useQueryClient();
   const [preferences, setPreferences] = usePreferences();
 
   const setAlerts = async (enabled: boolean) => {
@@ -20,8 +23,31 @@ export default function SettingsScreen() {
       Alert.alert('Notifications are off', 'Enable notifications in system settings when you want rain alerts.');
       return;
     }
-    if (!enabled) await syncScheduledAlert(null);
+    if (!enabled) {
+      try {
+        await syncScheduledAlert(null);
+      } catch {
+        Alert.alert('Could not disable alerts', 'Weathercast could not cancel the existing rain alert. Try again.');
+        return;
+      }
+    }
     setPreferences({ ...preferences, alerts: { ...preferences.alerts, enabled } });
+  };
+
+  const deleteLocalData = async () => {
+    try {
+      await resetAppData(queryClient);
+      router.replace('/onboarding');
+    } catch {
+      Alert.alert('Could not delete all data', 'Weathercast could not cancel the existing rain alert. Try again.');
+    }
+  };
+
+  const confirmDeleteLocalData = () => {
+    Alert.alert('Delete local data?', 'This removes saved places, preferences, alerts, and cached forecasts from this device.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: deleteLocalData },
+    ]);
   };
 
   return (
@@ -29,7 +55,12 @@ export default function SettingsScreen() {
       <Section title="Rain alerts">
         <Group>
           <SettingRow title="Alert me" body="Schedule an on-device alert from the latest forecast.">
-            <Switch value={preferences.alerts.enabled} onValueChange={setAlerts} />
+            <Switch
+              accessibilityLabel="Rain alerts"
+              accessibilityHint="Schedules a local alert from the latest forecast"
+              value={preferences.alerts.enabled}
+              onValueChange={setAlerts}
+            />
           </SettingRow>
           <Divider />
           <View style={{ padding: 16, gap: 10 }}>
@@ -54,13 +85,15 @@ export default function SettingsScreen() {
           <Divider />
           <SettingRow title="Moderate rain or heavier" body="Skip trace and light-rain alerts.">
             <Switch
+              accessibilityLabel="Moderate rain or heavier only"
+              accessibilityHint="Skips trace and light-rain alerts"
               value={preferences.alerts.significantOnly}
               onValueChange={(significantOnly) => setPreferences({ ...preferences, alerts: { ...preferences.alerts, significantOnly } })}
             />
           </SettingRow>
         </Group>
         <Text selectable style={{ color: theme.secondaryText, fontSize: 13, lineHeight: 19 }}>
-          Local alerts refresh when the app fetches a forecast. Reliable sleeping-device updates require the production push service described in the architecture docs.
+          Alerts use the latest forecast fetched while Weathercast is open. If the app has not refreshed recently, an alert may be stale or unavailable.
         </Text>
       </Section>
 
@@ -87,10 +120,7 @@ export default function SettingsScreen() {
           <Divider />
           <Pressable
             accessibilityRole="button"
-            onPress={() => Alert.alert('Delete local data?', 'This removes saved places, preferences, alerts, and cached forecasts from this device.', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Delete', style: 'destructive', onPress: () => { storage.clearAll(); router.replace('/onboarding'); } },
-            ])}
+            onPress={confirmDeleteLocalData}
             style={{ minHeight: 56, padding: 16, justifyContent: 'center' }}
           >
             <Text style={{ color: theme.destructive, fontSize: 16, fontWeight: '700' }}>Delete local data</Text>
@@ -101,8 +131,8 @@ export default function SettingsScreen() {
       <Section title="Data sources">
         <Group>
           <View style={{ padding: 16, gap: spacing.xs }}>
-            <Text selectable style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>Open-Meteo</Text>
-            <Text selectable style={{ color: theme.secondaryText, lineHeight: 21 }}>Worldwide 15-minute numerical guidance in the default build. Weather data by Open-Meteo.com.</Text>
+            <Text selectable style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>{forecastSourceInfo.title}</Text>
+            <Text selectable style={{ color: theme.secondaryText, lineHeight: 21 }}>{forecastSourceInfo.body}</Text>
           </View>
         </Group>
       </Section>
