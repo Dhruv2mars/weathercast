@@ -60,7 +60,7 @@ export default (): ExpoConfig => {
     runtimeVersion: { policy: 'appVersion' },
     updates: { fallbackToCacheTimeout: 0 },
     ios: {
-      icon: './assets/expo.icon',
+      icon: './assets/images/ios-icon.png',
       bundleIdentifier: 'com.dhruv2mars.weathercast',
       supportsTablet: true,
       privacyManifests: {
@@ -105,7 +105,7 @@ export default (): ExpoConfig => {
         'android.permission.SYSTEM_ALERT_WINDOW',
       ],
       adaptiveIcon: {
-        backgroundColor: '#E6F4FE',
+        backgroundColor: '#07101D',
         foregroundImage: './assets/images/android-icon-foreground.png',
         backgroundImage: './assets/images/android-icon-background.png',
         monochromeImage: './assets/images/android-icon-monochrome.png',

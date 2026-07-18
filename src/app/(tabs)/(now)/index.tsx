@@ -1,6 +1,6 @@
 import { useNetInfo } from '@react-native-community/netinfo';
 import { Redirect, router, Stack } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 
 import { AppButton } from '@/components/app-button';
@@ -26,23 +26,29 @@ export default function NowScreen() {
   const selectedPlaceKey = selected.place
     ? `${selected.place.id}:${selected.place.latitude}:${selected.place.longitude}`
     : 'none';
-  const hasUsableForecast = Boolean(
-    selected.place
-      && nowcast
-      && !nowcastQuery.isPlaceholderData
-      && !nowcastQuery.isFetching
-      && !nowcastQuery.isError
-      && !nowcastQuery.isStale,
-  );
+  const alertPlaceKeyRef = useRef(selectedPlaceKey);
 
   useEffect(() => {
+    const placeChanged = alertPlaceKeyRef.current !== selectedPlaceKey;
+    alertPlaceKeyRef.current = selectedPlaceKey;
+
     if (!preferences.alerts.enabled || !selected.place || !nowcast || nowcastQuery.isPlaceholderData) {
       syncScheduledAlert(null).catch(() => undefined);
       return;
     }
-    if (nowcastQuery.isFetching || nowcastQuery.isError) return;
+
+    // Cancel immediately on place change so a prior location's alert cannot linger
+    // through a failed/stale refresh for the newly selected place.
+    if (placeChanged) {
+      syncScheduledAlert(null).catch(() => undefined);
+      if (nowcastQuery.isFetching || nowcastQuery.isError) return;
+    } else if (nowcastQuery.isFetching || nowcastQuery.isError) {
+      // Same-place refresh/error: keep the existing scheduled alert.
+      return;
+    }
+
     syncScheduledAlert(getAlertPlan(nowcast, preferences.alerts)).catch(() => undefined);
-  }, [hasUsableForecast, nowcast, nowcastQuery.isError, nowcastQuery.isFetching, nowcastQuery.isPlaceholderData, nowcastQuery.isStale, preferences.alerts, selected.place, selectedPlaceKey]);
+  }, [nowcast, nowcastQuery.isError, nowcastQuery.isFetching, nowcastQuery.isPlaceholderData, preferences.alerts, selected.place, selectedPlaceKey]);
 
   if (!preferences.onboardingComplete) return <Redirect href="/onboarding" />;
 

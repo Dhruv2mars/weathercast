@@ -1,10 +1,10 @@
 import { Tabs } from 'expo-router';
-import { Text } from 'react-native';
+import { Image, Text } from 'react-native';
 
 import { useAppTheme } from '@/constants/theme';
 
 const tabs = [
-  { name: '(now)', title: 'Now', icon: '☂' },
+  { name: '(now)', title: 'Now', icon: 'brand' },
   { name: 'radar', title: 'Radar', icon: '⌖' },
   { name: 'places', title: 'Places', icon: '●' },
   { name: 'accuracy', title: 'Accuracy', icon: '✓' },
@@ -35,7 +35,9 @@ export default function WebAppTabs() {
           options={{
             title: tab.title,
             tabBarAccessibilityLabel: `${tab.title} tab`,
-            tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20, lineHeight: 22 }}>{tab.icon}</Text>,
+            tabBarIcon: ({ color }) => tab.icon === 'brand'
+              ? <Image accessible={false} source={require('../../assets/images/ui-mark.png')} style={{ width: 22, height: 22, borderRadius: 6, opacity: color === theme.accent ? 1 : 0.62 }} />
+              : <Text style={{ color, fontSize: 20, lineHeight: 22 }}>{tab.icon}</Text>,
           }}
         />
       ))}
