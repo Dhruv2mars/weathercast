@@ -35,7 +35,7 @@ Store metadata for Apple is mirrored in `store.config.json`. Final screenshots m
 - Listing copy: `store-assets/google-play/listings/en-US/`
 - Android phone screenshots: `store-assets/screenshots/android/`
 - Feature graphic: `store-assets/google-play/feature-graphic.png`
-- High-resolution icon: `assets/images/icon.png`
+- High-resolution icon: `store-assets/google-play/icon.png`
 - Release notes: `store-assets/google-play/release-notes/en-US/default.txt`
 
 The checked-in screenshots come from the installed Android release-candidate build. Replace them only when a signed production build uses the live production service; never upload a radar screenshot from an unlicensed or simulated feed.

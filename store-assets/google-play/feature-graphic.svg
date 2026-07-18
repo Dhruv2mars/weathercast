@@ -16,9 +16,17 @@
     <path d="M706 188l-38 88"/><path d="M768 164l-49 114"/><path d="M835 177l-43 100"/>
     <path d="M900 151l-55 128"/><path d="M960 183l-42 98"/>
   </g>
-  <g transform="translate(700 72)">
-    <path fill="#FFFFFF" fill-rule="evenodd" d="M128 0C57 0 0 57 0 127c0 86 94 157 119 174 5 4 13 4 19 0 24-17 118-88 118-174C256 57 199 0 128 0Zm0 55c-42 0-76 33-76 74s34 74 76 74 76-33 76-74-34-74-76-74Z"/>
-    <path fill="#FFFFFF" d="M128 71c-18 27-33 44-33 65 0 18 15 32 33 32s33-14 33-32c0-21-15-38-33-65Z"/>
+  <g transform="translate(700 48) scale(.25)">
+    <rect width="1024" height="1024" rx="176" fill="#07152F"/>
+    <g fill="none" stroke-linecap="round">
+      <circle cx="512" cy="512" r="390" stroke="#1B6DE1" stroke-width="5" opacity=".72"/>
+      <circle cx="512" cy="512" r="300" stroke="#1451B6" stroke-width="4" opacity=".68"/>
+      <path d="M512 58v178M512 788v178M58 512h178M788 512h178" stroke="#1A75E2" stroke-width="6" opacity=".62"/>
+      <path d="M190 264c92-92 204-138 322-138M834 760c-92 92-204 138-322 138" stroke="#168CFF" stroke-width="24" opacity=".92"/>
+      <path d="M744 198c64 46 116 103 154 170M280 826c-64-46-116-103-154-170" stroke="#13CAFF" stroke-width="18" opacity=".8"/>
+    </g>
+    <path fill="#FFFFFF" d="M512 294c-80 119-154 201-154 304 0 92 69 166 154 166s154-74 154-166c0-103-74-185-154-304Z"/>
+    <path fill="#A7EFFF" d="M512 340c-34 53-66 93-66 139 0 31 20 56 45 64 8-67 20-128 21-203Z"/>
   </g>
   <text x="72" y="193" fill="#FFFFFF" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="76" font-weight="760" letter-spacing="-2">Rain, timed.</text>
   <text x="76" y="257" fill="#D6E8FF" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="30" font-weight="560">Know when rain reaches you.</text>

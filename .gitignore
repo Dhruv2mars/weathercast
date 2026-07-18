@@ -45,7 +45,6 @@ yarn-error.*
 /android
 
 # create-expo-app artifacts retained locally but not part of Weathercast
-/assets/expo.icon/Assets/grid.png
 /assets/images/expo-badge-white.png
 /assets/images/expo-badge.png
 /assets/images/expo-logo.png
