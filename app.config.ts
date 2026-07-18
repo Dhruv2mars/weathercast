@@ -18,6 +18,7 @@ function httpsUrl(name: string, value: string | undefined) {
     throw new Error(`${name} must be a valid URL.`);
   }
   if (url.protocol !== 'https:') throw new Error(`${name} must use HTTPS.`);
+  if (url.username || url.password || url.search || url.hash) throw new Error(`${name} must not contain credentials or URL parameters.`);
   if (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname.endsWith('.example')) {
     throw new Error(`${name} must use a deployed production host.`);
   }

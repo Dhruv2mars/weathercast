@@ -2,6 +2,7 @@ import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
 
 import type { AlertPlan } from '@/domain/alerts';
+import { storage } from '@/lib/storage';
 
 const ALERT_ID_KEY = 'weathercast.alert-id.v1';
 const CHANNEL_ID = 'rain-alerts';
@@ -35,6 +36,13 @@ export async function configureNotifications() {
       sound: 'default',
     });
   }
+  const permission = await Notifications.getPermissionsAsync();
+  if (!permission.granted) {
+    const preferences = storage.getPreferences();
+    if (preferences.alerts.enabled) {
+      storage.setPreferences({ ...preferences, alerts: { ...preferences.alerts, enabled: false } });
+    }
+  }
 }
 
 export async function requestNotificationPermission() {
@@ -62,6 +70,14 @@ async function performAlertSync(plan: AlertPlan | null) {
     }
   }
   if (!plan) return;
+  const permission = await Notifications.getPermissionsAsync();
+  if (!permission.granted) {
+    const preferences = storage.getPreferences();
+    if (preferences.alerts.enabled) {
+      storage.setPreferences({ ...preferences, alerts: { ...preferences.alerts, enabled: false } });
+    }
+    return;
+  }
   const id = await Notifications.scheduleNotificationAsync({
     content: { title: plan.title, body: plan.body, data: { route: '/' }, sound: 'default' },
     trigger: {

@@ -62,6 +62,7 @@ export type Nowcast = {
   forecastId?: string;
   generatedAt?: string;
   validUntil?: string;
+  expired?: boolean;
   timezone?: string;
   sourceDataTime?: string | null;
   calibrationStatus?: 'uncalibrated' | 'provisional' | 'calibrated';

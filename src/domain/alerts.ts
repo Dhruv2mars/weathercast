@@ -8,7 +8,7 @@ export type AlertPlan = {
 
 export function getAlertPlan(nowcast: Nowcast, preferences: AlertPreferences, now = new Date()): AlertPlan | null {
   if (!preferences.enabled || !nowcast.event || nowcast.status !== 'incoming') return null;
-  if (nowcast.calibrationStatus === 'uncalibrated' || !nowcast.validUntil) return null;
+  if (nowcast.calibrationStatus === 'uncalibrated' || nowcast.expired || !nowcast.validUntil) return null;
   if (preferences.significantOnly && ['trace', 'light'].includes(nowcast.event.peakIntensity)) return null;
 
   const triggerAt = new Date(new Date(nowcast.event.startTime).getTime() - preferences.leadMinutes * 60_000);

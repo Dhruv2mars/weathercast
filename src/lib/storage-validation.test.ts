@@ -56,4 +56,16 @@ describe('storage validation', () => {
       intervals: [{ ...validNowcast.intervals[0], precipitationMm: null }],
     })).toBe(false);
   });
+
+  test('rejects invalid precision calibration and timestamp ordering', () => {
+    expect(isCachedNowcast({
+      ...validNowcast,
+      dataTier: 'precision',
+      calibrationStatus: 'provisional',
+    })).toBe(false);
+    expect(isCachedNowcast({
+      ...validNowcast,
+      generatedAt: '2026-07-10T10:05:00.000Z',
+    })).toBe(false);
+  });
 });

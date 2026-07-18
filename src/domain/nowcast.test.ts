@@ -6,16 +6,18 @@ import type { NormalizedForecast } from '@/types/weather';
 const issuedAt = new Date('2026-07-10T10:00:00.000Z');
 
 function forecast(amounts: number[], probabilities: number[] = amounts.map(() => 70)): NormalizedForecast {
+  const paddedAmounts = [...amounts, ...Array(8 - amounts.length).fill(0)].slice(0, 8);
+  const paddedProbabilities = [...probabilities, ...Array(8 - probabilities.length).fill(0)].slice(0, 8);
   return {
     issuedAt: issuedAt.toISOString(),
     timezone: 'UTC',
     source: 'Test provider',
-    intervals: amounts.map((precipitationMm, index) => ({
+    intervals: paddedAmounts.map((precipitationMm, index) => ({
       time: new Date(issuedAt.getTime() + index * 15 * 60_000).toISOString(),
       precipitationMm,
       rainMm: precipitationMm,
       showersMm: 0,
-      probability: probabilities[index] ?? 0,
+      probability: paddedProbabilities[index] ?? 0,
       weatherCode: precipitationMm > 0 ? 61 : 0,
     })),
   };
@@ -53,5 +55,10 @@ describe('buildNowcast', () => {
     const conflicting = buildNowcast(forecast([0, 0.3, 0.4, 0], [90, 15, 10, 90]), issuedAt);
 
     expect(aligned.confidence.score).toBeGreaterThan(conflicting.confidence.score);
+  });
+
+  test('rejects incomplete or distant forecast horizons', () => {
+    expect(() => buildNowcast({ ...forecast([0, 0]), intervals: forecast([0, 0]).intervals.slice(0, 2) }, issuedAt)).toThrow('FORECAST_HORIZON_UNAVAILABLE');
+    expect(() => buildNowcast(forecast([0, 0, 0, 0, 0, 0, 0, 0]), new Date('2026-07-09T10:00:00.000Z'))).toThrow('FORECAST_HORIZON_UNAVAILABLE');
   });
 });

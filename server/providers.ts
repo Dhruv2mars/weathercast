@@ -3,20 +3,36 @@ import { z } from 'zod';
 
 import { normalizedUpstreamSchema } from './contracts';
 
-const numberArray = z.array(z.number().nullable()).transform((values) => values.map((value) => value ?? 0));
+const measurementArray = z.array(z.number().nonnegative()).min(8);
+const weatherCodeArray = z.array(z.number().int()).min(8);
+const probabilityArray = z.array(z.number().min(0).max(100)).min(1);
 const openMeteoSchema = z.object({
   timezone: z.string(),
   minutely_15: z.object({
-    time: z.array(z.number()),
-    precipitation: numberArray,
-    rain: numberArray,
-    showers: numberArray,
-    weather_code: numberArray,
+    time: z.array(z.number()).min(8),
+    precipitation: measurementArray,
+    rain: measurementArray,
+    showers: measurementArray,
+    weather_code: weatherCodeArray,
   }),
   hourly: z.object({
-    time: z.array(z.number()),
-    precipitation_probability: numberArray,
+    time: z.array(z.number()).min(1),
+    precipitation_probability: probabilityArray,
   }),
+}).superRefine((value, context) => {
+  const minuteLengths = [
+    value.minutely_15.time.length,
+    value.minutely_15.precipitation.length,
+    value.minutely_15.rain.length,
+    value.minutely_15.showers.length,
+    value.minutely_15.weather_code.length,
+  ];
+  if (new Set(minuteLengths).size !== 1) {
+    context.addIssue({ code: 'custom', path: ['minutely_15'], message: 'Minutely forecast arrays must have equal lengths.' });
+  }
+  if (value.hourly.time.length !== value.hourly.precipitation_probability.length) {
+    context.addIssue({ code: 'custom', path: ['hourly'], message: 'Hourly forecast arrays must have equal lengths.' });
+  }
 });
 
 export type ProviderResult = {
@@ -66,7 +82,7 @@ export class OpenMeteoEvaluationProvider implements ForecastProvider {
       longitude: location.longitude.toFixed(5),
       minutely_15: 'precipitation,rain,showers,weather_code',
       hourly: 'precipitation_probability',
-      forecast_days: '1',
+      forecast_days: '2',
       timezone: 'auto',
       timeformat: 'unixtime',
     });
@@ -87,11 +103,11 @@ export class OpenMeteoEvaluationProvider implements ForecastProvider {
         source: 'Open-Meteo numerical guidance (evaluation)',
         intervals: parsed.minutely_15.time.map((time, index) => ({
           time: new Date(time * 1000).toISOString(),
-          precipitationMm: parsed.minutely_15.precipitation[index] ?? 0,
-          rainMm: parsed.minutely_15.rain[index] ?? 0,
-          showersMm: parsed.minutely_15.showers[index] ?? 0,
+          precipitationMm: parsed.minutely_15.precipitation[index],
+          rainMm: parsed.minutely_15.rain[index],
+          showersMm: parsed.minutely_15.showers[index],
           probability: nearestProbability(time, parsed.hourly.time, parsed.hourly.precipitation_probability),
-          weatherCode: parsed.minutely_15.weather_code[index] ?? 0,
+          weatherCode: parsed.minutely_15.weather_code[index],
         })),
       },
     };

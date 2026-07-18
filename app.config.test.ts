@@ -19,6 +19,7 @@ describe('validateProductionClientConfig', () => {
   test('rejects placeholders, local hosts, HTTP, and weak map keys', () => {
     expect(() => validateProductionClientConfig({ ...valid, EXPO_PUBLIC_NOWCAST_API_URL: 'https://api.weathercast.example' })).toThrow();
     expect(() => validateProductionClientConfig({ ...valid, EXPO_PUBLIC_RADAR_MANIFEST_URL: 'http://radar.weathercast.app' })).toThrow();
+    expect(() => validateProductionClientConfig({ ...valid, EXPO_PUBLIC_SUPPORT_URL: 'https://user:password@weathercast.app/support' })).toThrow();
     expect(() => validateProductionClientConfig({ ...valid, EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: 'replace-me' })).toThrow();
   });
 

@@ -12,6 +12,8 @@ export function useCurrentPlace(enabled: boolean) {
     },
     enabled,
     staleTime: 2 * 60_000,
+    refetchInterval: enabled ? 2 * 60_000 : false,
+    refetchIntervalInBackground: false,
     retry: false,
   });
 }

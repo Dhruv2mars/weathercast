@@ -94,12 +94,16 @@ export function isCachedNowcast(value: unknown): value is Nowcast {
   if (value.forecastId !== undefined && (typeof value.forecastId !== 'string' || value.forecastId.length === 0)) return false;
   if (value.generatedAt !== undefined && !isIsoDate(value.generatedAt)) return false;
   if (value.validUntil !== undefined && !isIsoDate(value.validUntil)) return false;
+  if (value.generatedAt !== undefined && value.validUntil !== undefined
+      && new Date(value.generatedAt).getTime() > new Date(value.validUntil).getTime()) return false;
   if (value.validUntil !== undefined && new Date(value.validUntil).getTime() < new Date(value.issuedAt).getTime()) return false;
+  if (value.expired !== undefined && typeof value.expired !== 'boolean') return false;
   if (value.timezone !== undefined && typeof value.timezone !== 'string') return false;
   if (value.sourceDataTime !== undefined && value.sourceDataTime !== null && !isIsoDate(value.sourceDataTime)) return false;
   if (value.calibrationStatus !== undefined
       && (typeof value.calibrationStatus !== 'string' || !calibrationStatuses.has(value.calibrationStatus as NonNullable<Nowcast['calibrationStatus']>))) return false;
   if (value.calibrationStatus === 'uncalibrated' && (value.confidence.label !== 'low' || value.confidence.score !== 0)) return false;
+  if (value.dataTier === 'precision' && value.calibrationStatus !== 'calibrated') return false;
   if (value.coverage !== undefined
       && (!isRecord(value.coverage)
         || typeof value.coverage.reason !== 'string'

@@ -1,12 +1,12 @@
 import '@/lib/storage';
 
 import NetInfo from '@react-native-community/netinfo';
-import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
+import { focusManager, QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { useColorScheme } from 'react-native';
+import { AppState, useColorScheme } from 'react-native';
 
 import { configureNotifications } from '@/services/notifications';
 
@@ -32,7 +32,14 @@ export default function RootLayout() {
 
   useEffect(() => {
     onlineManager.setEventListener((setOnline) => NetInfo.addEventListener((state) => setOnline(Boolean(state.isConnected))));
-    return () => onlineManager.setEventListener(() => undefined);
+    focusManager.setEventListener((handleFocus) => {
+      const subscription = AppState.addEventListener('change', (state) => handleFocus(state === 'active'));
+      return () => subscription.remove();
+    });
+    return () => {
+      onlineManager.setEventListener(() => undefined);
+      focusManager.setEventListener(() => undefined);
+    };
   }, []);
 
   return (

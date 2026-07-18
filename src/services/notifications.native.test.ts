@@ -11,10 +11,29 @@ mock.module('expo-constants', () => ({
   ExecutionEnvironment: { StoreClient: 'store-client' },
 }));
 mock.module('react-native', () => ({ Platform: { OS: 'android' } }));
+const getPermissionsAsync = mock(() => Promise.resolve({ granted: true }));
+
 mock.module('expo-notifications', () => ({
+  AndroidImportance: { HIGH: 4 },
   SchedulableTriggerInputTypes: { DATE: 'date' },
   cancelScheduledNotificationAsync,
+  getPermissionsAsync,
   scheduleNotificationAsync,
+  setNotificationChannelAsync: mock(() => Promise.resolve()),
+  setNotificationHandler: mock(() => undefined),
+}));
+
+const preferences = {
+  alerts: { enabled: true, leadMinutes: 15 as const, significantOnly: false },
+  onboardingComplete: true,
+  selectedPlaceId: 'current',
+};
+const setPreferences = mock(() => undefined);
+mock.module('@/lib/storage', () => ({
+  storage: {
+    getPreferences: () => preferences,
+    setPreferences,
+  },
 }));
 
 const values = new Map<string, string>([['weathercast.alert-id.v1', 'old-alert']]);
@@ -64,5 +83,24 @@ describe('syncScheduledAlert', () => {
     expect(cancelScheduledNotificationAsync).toHaveBeenCalledWith('stale-alert');
     expect(scheduleNotificationAsync).toHaveBeenCalledTimes(1);
     expect(values.get('weathercast.alert-id.v1')).toBe('replacement-alert');
+  });
+
+  test('does not schedule when notification permission was revoked', async () => {
+    values.delete('weathercast.alert-id.v1');
+    getPermissionsAsync.mockImplementationOnce(() => Promise.resolve({ granted: false }));
+    scheduleNotificationAsync.mockClear();
+
+    await syncScheduledAlert({
+      triggerAt: new Date('2026-07-16T13:45:00.000Z'),
+      title: 'Rain soon',
+      body: 'Moderate rain expected.',
+    });
+
+    expect(scheduleNotificationAsync).toHaveBeenCalledTimes(0);
+    expect(values.get('weathercast.alert-id.v1')).toBeUndefined();
+    expect(setPreferences).toHaveBeenCalledWith({
+      ...preferences,
+      alerts: { ...preferences.alerts, enabled: false },
+    });
   });
 });

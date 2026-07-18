@@ -57,7 +57,10 @@ export const storage = {
     const cache = readJson<unknown>(KEYS.nowcast, {});
     if (!cache || typeof cache !== 'object' || Array.isArray(cache)) return undefined;
     const nowcast = (cache as Record<string, unknown>)[locationKey];
-    return isCachedNowcast(nowcast) ? nowcast : undefined;
+    if (!isCachedNowcast(nowcast)) return undefined;
+    return nowcast.validUntil && new Date(nowcast.validUntil).getTime() <= Date.now()
+      ? { ...nowcast, expired: true }
+      : nowcast;
   },
   setNowcast(locationKey: string, nowcast: Nowcast) {
     const cache = readJson<Record<string, Nowcast>>(KEYS.nowcast, {});

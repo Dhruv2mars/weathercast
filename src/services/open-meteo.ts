@@ -3,20 +3,33 @@ import { z } from 'zod';
 import { getJson } from '@/services/http';
 import type { Coordinates, NormalizedForecast } from '@/types/weather';
 
+const nullableMeasurements = z.array(z.number().nonnegative().nullable()).min(8);
+const nullableWeatherCodes = z.array(z.number().int().nullable()).min(8);
+const nullableProbabilities = z.array(z.number().min(0).max(100).nullable()).min(1);
 const responseSchema = z.object({
   timezone: z.string(),
   minutely_15: z.object({
     time: z.array(z.number()).min(8),
-    precipitation: z.array(z.number().nonnegative()).min(8),
-    rain: z.array(z.number().nonnegative()).min(8),
-    showers: z.array(z.number().nonnegative()).min(8),
-    weather_code: z.array(z.number().int()).min(8),
+    precipitation: nullableMeasurements,
+    rain: nullableMeasurements,
+    showers: nullableMeasurements,
+    weather_code: nullableWeatherCodes,
   }),
   hourly: z.object({
     time: z.array(z.number()).min(1),
-    precipitation_probability: z.array(z.number().min(0).max(100)).min(1),
+    precipitation_probability: nullableProbabilities,
   }),
 }).superRefine((value, context) => {
+  const measurements = [
+    ...value.minutely_15.precipitation,
+    ...value.minutely_15.rain,
+    ...value.minutely_15.showers,
+    ...value.minutely_15.weather_code,
+    ...value.hourly.precipitation_probability,
+  ];
+  if (measurements.some((measurement) => measurement === null)) {
+    context.addIssue({ code: 'custom', path: ['minutely_15'], message: 'Forecast measurements must be complete.' });
+  }
   const minuteLengths = [
     value.minutely_15.time.length,
     value.minutely_15.precipitation.length,
@@ -32,7 +45,7 @@ const responseSchema = z.object({
   }
 });
 
-function nearestProbability(time: number, hourlyTimes: number[], probabilities: number[]) {
+function nearestProbability(time: number, hourlyTimes: number[], probabilities: (number | null)[]) {
   let bestIndex = 0;
   let bestDistance = Number.POSITIVE_INFINITY;
   hourlyTimes.forEach((hourlyTime, index) => {
@@ -42,7 +55,14 @@ function nearestProbability(time: number, hourlyTimes: number[], probabilities: 
       bestDistance = distance;
     }
   });
-  return Math.round(probabilities[bestIndex] ?? 0);
+  const probability = probabilities[bestIndex];
+  if (probability === null || probability === undefined) throw new Error('Weather service returned incomplete measurements.');
+  return Math.round(probability);
+}
+
+function requiredMeasurement(value: number | null) {
+  if (value === null) throw new Error('Weather service returned incomplete measurements.');
+  return value;
 }
 
 export async function fetchOpenMeteoForecast(location: Coordinates, signal?: AbortSignal): Promise<NormalizedForecast> {
@@ -52,7 +72,7 @@ export async function fetchOpenMeteoForecast(location: Coordinates, signal?: Abo
     longitude: location.longitude.toFixed(5),
     minutely_15: 'precipitation,rain,showers,weather_code',
     hourly: 'precipitation_probability',
-    forecast_days: '1',
+    forecast_days: '2',
     timezone: 'auto',
     timeformat: 'unixtime',
   });
@@ -67,11 +87,11 @@ export async function fetchOpenMeteoForecast(location: Coordinates, signal?: Abo
     source: 'Open-Meteo numerical guidance',
     intervals: minuteData.time.map((time, index) => ({
       time: new Date(time * 1000).toISOString(),
-      precipitationMm: minuteData.precipitation[index] ?? 0,
-      rainMm: minuteData.rain[index] ?? 0,
-      showersMm: minuteData.showers[index] ?? 0,
+      precipitationMm: requiredMeasurement(minuteData.precipitation[index]),
+      rainMm: requiredMeasurement(minuteData.rain[index]),
+      showersMm: requiredMeasurement(minuteData.showers[index]),
       probability: nearestProbability(time, hourly.time, hourly.precipitation_probability),
-      weatherCode: minuteData.weather_code[index] ?? 0,
+      weatherCode: requiredMeasurement(minuteData.weather_code[index]),
     })),
   };
 }

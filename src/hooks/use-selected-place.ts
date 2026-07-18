@@ -5,7 +5,7 @@ import { usePreferences } from '@/hooks/use-preferences';
 export function useSelectedPlace() {
   const [preferences] = usePreferences();
   const { places } = usePlaces();
-  const current = useCurrentPlace(preferences.selectedPlaceId === 'current');
+  const current = useCurrentPlace(preferences.selectedPlaceId === 'current' && preferences.onboardingComplete);
   const saved = places.find((place) => place.id === preferences.selectedPlaceId);
   return {
     place: preferences.selectedPlaceId === 'current' ? current.data : saved,

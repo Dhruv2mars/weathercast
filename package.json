@@ -70,7 +70,8 @@
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "check": "bun run lint && bun run typecheck && bun test && bun run radar:check",
+    "assets:check": "bun run scripts/check-brand-assets.ts",
+    "check": "bun run lint && bun run typecheck && bun test && bun run radar:check && bun run assets:check",
     "export": "expo export --platform all"
   },
   "private": true,

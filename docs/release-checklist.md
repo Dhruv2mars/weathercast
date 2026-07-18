@@ -5,6 +5,7 @@
 - [ ] `bun run check`
 - [ ] `bunx expo-doctor`
 - [ ] `bun run export`
+- [ ] `bun run assets:check`
 - [ ] Signed iOS and Android production builds install and launch
 - [ ] Core flows pass on a current iPhone and Android device
 - [ ] Crash-free, API latency, provider freshness, and alert-delivery monitoring configured

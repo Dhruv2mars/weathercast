@@ -51,6 +51,12 @@ export function buildNowcast(forecast: NormalizedForecast, now = new Date()): No
   const intervals = forecast.intervals
     .filter((interval) => new Date(interval.time).getTime() >= now.getTime() - SLOT_MINUTES * 60_000)
     .slice(0, HORIZON_MINUTES / SLOT_MINUTES);
+  const firstIntervalTime = intervals[0] ? new Date(intervals[0].time).getTime() : Number.NaN;
+  if (intervals.length < HORIZON_MINUTES / SLOT_MINUTES
+      || !Number.isFinite(firstIntervalTime)
+      || firstIntervalTime - now.getTime() > SLOT_MINUTES * 2 * 60_000) {
+    throw new Error('FORECAST_HORIZON_UNAVAILABLE');
+  }
   const firstWetIndex = intervals.findIndex((interval) => interval.precipitationMm >= WET_THRESHOLD_MM);
 
   if (firstWetIndex < 0) {
