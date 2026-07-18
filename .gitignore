@@ -55,3 +55,6 @@ yarn-error.*
 /assets/images/tabIcons/
 /assets/images/tutorial-web.png
 /scripts/reset-project.js
+
+# local agent / entire tooling
+.entire/
